@@ -25,7 +25,7 @@ The script `setup_crossenv.sh` also contains suggested configurations to build *
 
 To prepare the KOS source code (starting from the main directory), download and unpack the *acpica* and *lwip* packages:
 
-<pre>
+```
 cd src/extern
 wget https://acpica.org/sites/acpica/files/acpica-unix-20150717.tar.gz
 tar xaf acpica-unix-20150717.tar.gz
@@ -38,7 +38,7 @@ rm lwip-1.4.1.zip
 mv lwip/lwip-1.4.1 lwip/lwip
 patch -d lwip/lwip -p1 < ../../patches/lwip-1.4.1.patch
 cd ../..
-</pre>
+```
 
 You should be back in the main directory. Run `make` to get a list of build targets. These targets should also work from within the `src/` directory. Make sure to **not** have any of *gcc*'s or *ld*'s `PATH` environment variables set, such as `C_INCLUDE_PATH` or `LD_LIBRARY_PATH`, since those might interfere with the cross compiler setup. Run `make all` to build the kernel binary and/or `make iso` to build the ISO image.
 
@@ -68,12 +68,12 @@ Running KOS in *qemu* creates several log files that can be used to diagnose pro
 
 `make pxe` stages a *grub*-based boot setup in `src/stage/boot`. `make tftp` uploads this setup to a TFTP server, according to the setting of `TFTPSERVER` and `TFTDDIR` in the main `config` file. The boot process can be invoked, for example, through chain-loading from syslinux (via the `pxelinux.0` binary) using the following boot entry in `/tftpboot/pxelinux.cfg/default`:
 
-<pre>
+```
 label kosgrub
   menu label kosgrub
   menu default
   kernel boot/grub/i386-pc/core.0
-</pre>
+```
 
 
 ### Documentation
