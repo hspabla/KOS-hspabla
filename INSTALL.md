@@ -76,36 +76,6 @@ label kosgrub
 ```
 
 
-### Documentation
-
-TBD
-
-### Contributors
-
-The following students (in alphabetical order) have helped with getting various parts of the system off the ground:
-
-- Sukown Oh (e1000, gdb)
-- Behrooz Shafiee (elf, keyboard, lwip, pit, syscall/sysret)
-- Priyaa Varshinee Srinivasan (synchronization)
-- Alex Szlavik (bootstrap)
-- Cameron White (clang support)
-
-
-### License
-
-KOS is currently distributed under the GNU GPL license, although this could change in the future.
-
-
-### Third-Party Software
-
-KOS is built using *gcc* with *newlib* as the C library, as well as *grub* for booting. KOS can also be compiled using *clang* (using *gcc*'s C++ library). Further, KOS integrates *acpica* and *lwip* as external software packages. Please see their respective license information when downloading the source code. Finally, KOS is distributed with and uses the following software packages, which can be found in the `src/extern/` directory.  Please see the source code for detailed license information.  The summary below is just a high-level overview of my interpretation of the license terms.
-
-- *cdi*:        BSD-type license
-- *dlmalloc*:   public domain / creative commons license
-- *elfio*:      BSD-type license
-- *multiboot*:  BSD-type license
-
-
 ### Feedback / Questions
 
 Please send any questions or feedback to mkarsten|**at**|uwaterloo.ca.
