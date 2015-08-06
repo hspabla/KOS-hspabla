@@ -1,0 +1,8 @@
+# Untracked Files
+*Makefile.dep
+*Makefile.state
+src/main/UserMain.h
+
+# Untracked Directories
+src/extern/acpica/
+src/extern/lwip/lwip/
