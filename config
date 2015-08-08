@@ -11,7 +11,7 @@ TOOLSDIR=/usr/local
 
 # version information for cross compiler
 TARGET=x86_64-pc-elf
-GCCVER=4.9.2
+GCCVER=5.2.0
 
 # used when installing on a USB device, must be set to actual USB device
 USBDEV=/dev/sdX

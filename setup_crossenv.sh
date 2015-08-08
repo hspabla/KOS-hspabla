@@ -14,12 +14,12 @@ ULDIR=$(pwd)/src/ulib
 source $(pwd)/config
 cd -
 
-BINUTILS=binutils-2.25       # GNU mirror
+BINUTILS=binutils-2.25.1     # GNU mirror
 BOCHS=bochs-2.6.8            # http://bochs.sourceforge.net/
 GCC=gcc-$GCCVER              # GNU mirror
 GDB=gdb-7.9.1                # GNU mirror
 GRUB=grub-2.02~beta2         # http://alpha.gnu.org/gnu/grub/
-NEWLIB=newlib-2.2.0.20150225 # http://sourceware.org/newlib/
+NEWLIB=newlib-2.2.0.20150623 # http://sourceware.org/newlib/
 QEMU=qemu-2.3.0              # http://www.qemu.org/
 
 mkdir -p $TMPDIR
@@ -63,10 +63,10 @@ function install() {
 
 function build_gcc() {
 	rm -rf $TMPDIR/$GCC && mkdir $TMPDIR/$GCC && cd $TMPDIR/$GCC || error "$TMPDIR/$GCC access"
-	# order often important - best order typically depends on version mix
-	tar xaf $DLDIR/$GCC.tar.bz2 --strip-components 1 || error "$GCC extract"
+	# order important; code overlap binutils/gcc/newlib; depends on version mix
 	tar xaf $DLDIR/$NEWLIB.tar.gz --strip-components 1 || error "$NEWLIB extract"
 	tar xaf $DLDIR/$BINUTILS.tar.bz2 --strip-components 1 || error "$BINUTILS extract"
+	tar xaf $DLDIR/$GCC.tar.bz2 --strip-components 1 || error "$GCC extract"
 	sh $PTDIR/$NEWLIB.sh $TMPDIR/$GCC || error "$NEWLIB shell patch"
 	sh $PTDIR/$GCC.sh $TMPDIR/$GCC $ULDIR || error "$GCC shell patch"
 	applypatch $GCC
