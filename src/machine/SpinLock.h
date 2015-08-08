@@ -29,19 +29,19 @@ public:
   bool check() const { return locked; }
   bool tryAcquire() {
     KASSERT0(!CPU::interruptsEnabled());
-    return !__atomic_test_and_set(&locked, __ATOMIC_SEQ_CST);
+    return !__atomic_test_and_set(&locked, __ATOMIC_ACQUIRE);
   }
   void acquire() {
     KASSERT0(!CPU::interruptsEnabled());
     for (;;) {
-      if fastpath(!__atomic_test_and_set(&locked, __ATOMIC_SEQ_CST)) return;
+      if fastpath(!__atomic_test_and_set(&locked, __ATOMIC_ACQUIRE)) return;
       while (locked) CPU::Pause();
     }
   }
   void release() {
     KASSERT0(!CPU::interruptsEnabled());
     KASSERT0(check());
-    locked = false;
+    __atomic_clear(&locked, __ATOMIC_RELEASE);
   }
 } __caligned;
 
@@ -56,7 +56,7 @@ public:
     KASSERT0(!CPU::interruptsEnabled());
     if (owner != requestor) {
       T expected = noOwner;
-      if slowpath(!__atomic_compare_exchange_n(&owner, &expected, requestor, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {
+      if slowpath(!__atomic_compare_exchange_n(&owner, &expected, requestor, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
         return false;
       }
     }
@@ -68,7 +68,7 @@ public:
     if (owner != requestor) {
       for (;;) {
         T expected = noOwner;
-        if fastpath(__atomic_compare_exchange_n(&owner, &expected, requestor, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) break;
+        if fastpath(__atomic_compare_exchange_n(&owner, &expected, requestor, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) break;
         while (owner != noOwner) CPU::Pause();
       }
     }
@@ -78,7 +78,7 @@ public:
     KASSERT0(!CPU::interruptsEnabled());
     KASSERT0(owner == requestor);
     counter -= 1;
-    if (counter == 0) owner = noOwner;
+    if (counter == 0) __atomic_store_n(&owner, noOwner, __ATOMIC_RELEASE);
   }
 } __caligned;
 
@@ -91,17 +91,17 @@ public:
   bool tryAcquire() {
     KASSERT0(!CPU::interruptsEnabled());
     mword tryticket = serving;
-    return __atomic_compare_exchange_n(&ticket, &tryticket, tryticket + 1, 0, __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
+    return __atomic_compare_exchange_n(&ticket, &tryticket, tryticket + 1, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED);
   }
   void acquire() {
     KASSERT0(!CPU::interruptsEnabled());
-    mword myticket = __atomic_fetch_add(&ticket, 1, __ATOMIC_SEQ_CST);
+    mword myticket = __atomic_fetch_add(&ticket, 1, __ATOMIC_ACQUIRE);
     while (myticket != serving) CPU::Pause();
   }
   void release() {
     KASSERT0(!CPU::interruptsEnabled());
     KASSERT0(check());
-    serving += 1;
+    __atomic_fetch_add(&serving, 1, __ATOMIC_RELEASE);
   }
 };
 
