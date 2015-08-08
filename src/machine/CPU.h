@@ -136,6 +136,18 @@ namespace CPU {
     asm volatile("swapgs");
   }
 
+  static inline void LoadFence() {
+    asm volatile("lfence" ::: "memory");
+  }
+
+  static inline void StoreFence() {
+    asm volatile("sfence" ::: "memory");
+  }
+
+  static inline void FullFence() {
+    asm volatile("mfence" ::: "memory");
+  }
+
   static inline void InvTLB(mword val) {
     // Somehow the extra move into a register seems to be necessary to
     // to make invlpg work reliably (e.g. bochs, but also observed on HW),

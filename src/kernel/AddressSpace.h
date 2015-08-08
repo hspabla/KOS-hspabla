@@ -218,7 +218,7 @@ public:
       if (prevAS->user()) {
         if (destroyPrev) {
           DBG::outl(DBG::VM, "AS(", FmtHex(pagetable), ")/destroy:", *prevAS);
-          Paging::clearAll(align_down(userbot, pagesize<pagelevels>()), align_up(usertop, pagesize<pagelevels>()), CurrFM());
+          Paging::clear(align_down(userbot, pagesize<pagelevels>()), align_up(usertop, pagesize<pagelevels>()), CurrFM());
         }
         ScopedLock<> sl(prevAS->ulock);
         prevAS->runInvalidation(aum);
