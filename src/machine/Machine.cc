@@ -177,10 +177,11 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   bootProcessor.init1(topaddr, true);
   bootProcessor.init2(idt, sizeof(idt));
 
-  // print all MBI info, re-initialize debugging to print debug options
-  Multiboot::init2();
+  // print MBI info, get RSDP, re-init debugging to print debug options
+  paddr rsdp = Multiboot::init2();
 
-  // double-check that BSP received index 0
+  // double-check that RSDP is valid and BSP received index 0
+  KASSERT0(rsdp != limit<paddr>());
   KASSERT1(idx == 0, idx);
 
   // print boot memory information
@@ -207,6 +208,8 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
     mem.insert( Region<paddr>(align_up(it->start, pagesize<1>()), align_down(it->end, pagesize<1>())) );
     it = memtmp.erase(it);
   }
+  KASSERT0(!mem.empty());
+  paddr endphysmem = (--mem.end())->end;
 
   // reserve memory & copy boot code segment -> easy with identiy mapping
   mem.remove(Region<paddr>(BOOTAP16, BOOTAP16 + boot16Size));
@@ -215,16 +218,12 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   // reserve kernel memory from being re-used/overwritten
   mem.remove( Region<paddr>(vaddr(&__KernelBoot) - kernelBase, kernelEnd - kernelBase) );
 
-  // retrieve rsdp before identity mapping gone
-  paddr rsdp = Multiboot::getRSDP();
-
   // bootstrap paging -> afterwards: identity mapping is gone
   pml4addr = Paging::bootstrap(kernelBase, vaddr(&__KernelData), kernelEnd, mem, _friend<Machine>());
-  Multiboot::remap(kernelBase);
+  Multiboot::rebase(kernelBase);
 
   // allocate and map memory for frame manager <- need paging bootstrapped
   KASSERT0(!mem.empty());
-  paddr endphysmem = (--mem.end())->end;
   size_t fmStart = kerneltop - FrameManager::getSize(endphysmem);
   vaddr initStart = kerneltop;
   while (initStart + bootHeapSize > fmStart) { // ensure leftover for kernel memory

@@ -26,9 +26,8 @@ class Multiboot {
   static void initDebug(bool msg)                     __section(".boot.text");
 public:
   static vaddr init(mword magic, vaddr mbi)           __section(".boot.text");
-  static void init2()                                 __section(".boot.text");
-  static void remap(vaddr disp)                       __section(".boot.text");
-  static vaddr getRSDP()                              __section(".boot.text");
+  static paddr init2()                                __section(".boot.text");
+  static void rebase(vaddr disp)                      __section(".boot.text");
   static void getMemory(RegionSet<Region<paddr>>& rs) __section(".boot.text");
   static void readModules(vaddr disp)                 __section(".boot.text");
 };

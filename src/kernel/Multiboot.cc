@@ -58,10 +58,11 @@ vaddr Multiboot::init( mword magic, vaddr mbi ) {
   return max(mbiEnd, modEnd);
 }
 
-void Multiboot::init2() {
+paddr Multiboot::init2() {
   DBG::outl(DBG::Basic, "************ DEBUG *************");
   initDebug(true);
   DBG::outl(DBG::Basic, "************* MBI **************");
+  paddr rsdp = limit<paddr>();
   FORALLTAGS(tag,mbiStart,mbiEnd) {
     switch (tag->type) {
     case MULTIBOOT_TAG_TYPE_CMDLINE:
@@ -116,10 +117,12 @@ void Multiboot::init2() {
       break;
     case MULTIBOOT_TAG_TYPE_ACPI_OLD: {
       multiboot_tag_old_acpi* ta = (multiboot_tag_old_acpi*)tag;
+      rsdp = paddr(ta->rsdp);
       DBG::outl(DBG::Boot, "acpi/old: ", FmtHex(ta->rsdp), '/', FmtHex(ta->size));
     } break;
     case MULTIBOOT_TAG_TYPE_ACPI_NEW: {
       multiboot_tag_new_acpi* ta = (multiboot_tag_new_acpi*)tag;
+      rsdp = paddr(ta->rsdp);
       DBG::outl(DBG::Boot, "acpi/new: ", FmtHex(ta->rsdp), '/', FmtHex(ta->size));
     } break;
     case MULTIBOOT_TAG_TYPE_NETWORK:
@@ -129,24 +132,12 @@ void Multiboot::init2() {
       DBG::outl(DBG::Boot, "unknown tag: ", tag->type);
     }
   }
+  return rsdp;
 }
 
-void Multiboot::remap(vaddr disp) {
+void Multiboot::rebase(vaddr disp) {
   mbiStart += disp;
   mbiEnd += disp;
-}
-
-vaddr Multiboot::getRSDP() {
-  FORALLTAGS(tag,mbiStart,mbiEnd) {
-    switch (tag->type) {
-    case MULTIBOOT_TAG_TYPE_ACPI_OLD:
-      return vaddr(((multiboot_tag_old_acpi*)tag)->rsdp);
-    case MULTIBOOT_TAG_TYPE_ACPI_NEW:
-      return vaddr(((multiboot_tag_new_acpi*)tag)->rsdp);
-    }
-  }
-  KABORT1("RSDP not found");
-  return 0;
 }
 
 void Multiboot::getMemory(RegionSet<Region<paddr>>& rs) {

@@ -84,7 +84,6 @@ static const mword  devptindex   = ptentries - 1;
 
 // basic memory layout
 static const vaddr  userbot      =  pagesize<2>();
-static const vaddr  usertmp      = (pagesize<pagelevels>() * (usertindex - 1));
 static const vaddr  usertop      = (pagesize<pagelevels>() * usertindex);
 static const vaddr  kernelbot    = (pagesize<pagelevels>() * kernbindex) | canonPrefix;
 static const vaddr  kerneltop    = (pagesize<pagelevels>() * kerntindex) | canonPrefix;
