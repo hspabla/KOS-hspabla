@@ -9,7 +9,7 @@ A somewhat recent version of *xorriso* (>-1.0.0) is necessary for making ISO boo
 
 Run `setup_crossenv.sh gcc gdb grub 2>&1 | tee setup.out` (bash syntax) to build the complete tool chain. The output should contain the following (among other output; grep for SUCCESS):
 
-`SUCCESS: gcc-4.9.2 install`  
+`SUCCESS: gcc-5.2.0 install`  
 `SUCCESS: gdb-7.9.1 install`  
 `SUCCESS: grub-2.02~beta2 install`
 
