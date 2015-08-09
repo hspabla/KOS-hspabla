@@ -101,7 +101,7 @@ void FrameManager::zeroInternal() {
   lock.release();
   paddr addr = zd->addr;
   size_t size = zd->size;
-  kdelete(zd);
+  zdCache.deallocate(zd);
   // map and zero memory without hold FM lock
   DBG::outl(DBG::Frame, "FM/zero: ", FmtHex(addr), '/', FmtHex(size));
   paddr astart = align_down(addr, kernelps);

@@ -45,6 +45,7 @@ class FrameManager {
     ZeroDescriptor(paddr a, size_t s) : addr(a), size(s) {}
   };
   IntrusiveList<ZeroDescriptor> zeroQueue;
+  HeapCache<sizeof(ZeroDescriptor)> zdCache;
 
   void releaseInternal(paddr addr, size_t size) {
     DBG::outl(DBG::Frame, "FM/release: ", FmtHex(addr), '/', FmtHex(size));
@@ -131,7 +132,7 @@ public:
   void release( paddr addr, size_t size ) {
     ZeroDescriptor* zd;
     // allocate ZD object before acquiring lock
-    if (zero) zd = knew<ZeroDescriptor>(addr, size);
+    if (zero) zd = new (zdCache.allocate()) ZeroDescriptor(addr, size);
     ScopedLock<> sl(lock);
     if (zero) zeroQueue.push_back(*zd);
     else releaseInternal(addr, size);
