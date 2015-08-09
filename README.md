@@ -11,6 +11,8 @@ For example, KOS provides basic memory management, scheduling, threads, address 
 
 Installation instructions are provided in <tt>INSTALL.md</tt>.
 
+Known bugs are described in <tt>BUGS.md</tt>.
+
 
 ### Documentation
 
