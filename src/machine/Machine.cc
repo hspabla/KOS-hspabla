@@ -222,6 +222,9 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   pml4addr = Paging::bootstrap(kernelBase, vaddr(&__KernelData), kernelEnd, mem, _friend<Machine>());
   Multiboot::rebase(kernelBase);
 
+  // bootstrap paging, 2nd part
+  Paging::bootstrap2(mem, _friend<Machine>());
+
   // allocate and map memory for frame manager <- need paging bootstrapped
   KASSERT0(!mem.empty());
   size_t fmStart = kerneltop - FrameManager::getSize(endphysmem);

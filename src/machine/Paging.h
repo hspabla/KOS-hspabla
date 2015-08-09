@@ -100,7 +100,7 @@ private:
   }
 
   template<unsigned int N> static constexpr vaddr getPageEntryInternal( vaddr vma ) {
-    static_assert(recptindex >= ptentries / 2, "recptindex must point in upper half of VM");
+    static_assert(recptindex >= ptentries / 2, "recptindex must be in upper half of VM");
     return align_down(canonPrefix | getPageEntryHelper<N>(vma & ~canonPrefix), sizeof(PageEntry));
   }
 
@@ -115,6 +115,10 @@ private:
   template<unsigned int N> static constexpr mword getPageIndex( vaddr vma ) {
     static_assert( N > 0 && N <= pagelevels, "page level template violation" );
     return (vma & bitmask<mword>(pagesizebits<N+1>())) >> pagesizebits<N>();
+  }
+
+  template<unsigned int N> static void setPageEntry( vaddr vma, PageEntry pe ) {
+    *getPageEntry<N>(vma) = pe;
   }
 
   template<unsigned int N> static constexpr PageEntry xPS() {
@@ -272,6 +276,7 @@ protected:
 
 public:
   static inline paddr bootstrap(vaddr kernelBase, vaddr kernelData, vaddr kernelEnd, RegionSet<Region<paddr>>& mem, _friend<Machine>);
+  static inline void bootstrap2(RegionSet<Region<paddr>>& mem, _friend<Machine>);
 
   template <unsigned int N>
   static bool mapPage( vaddr vma, paddr pma, uint64_t type, _friend<Machine> ) {
@@ -324,21 +329,24 @@ inline bool Paging::mapTable( vaddr vma, uint64_t pff, FrameManager& fm ) {
 
 inline void Paging::clone(paddr newpt) {
   DBG::outl(DBG::Paging, "Paging::clone - PML4: ", FmtHex(newpt));
+  // obtain per-processor clone address and lock processor
   vaddr cloneAddr = LocalProcessor::getCloneAddr();
   LocalProcessor::lock();
+  // map PML4 page
   mapPage<pagetablepl>(cloneAddr, newpt, Data | Kernel);
   PageEntry* clonedPE = (PageEntry*)cloneAddr;
   PageEntry* kernelPE = getPageEntry<pagelevels>(0);
+  // copy top half of PML4
+  memcpy(clonedPE + ptentries/2, kernelPE + ptentries/2, pagetableps / 2);
+  // set recursive page mapping entry
   clonedPE[recptindex] = newpt | PageTable;
-  for (size_t idx = kernbindex; idx < ptentries; idx += 1) {
-    clonedPE[idx] = kernelPE[idx];
-  }
+  // unmap PML4 page, invalidate mapping, unlock
   unmap<pagetablepl>(cloneAddr);
   CPU::InvTLB(cloneAddr);
   LocalProcessor::unlock();
 }
 
-// 'bootstrap' relies on identity paging in place; memory not zeroed
+// bootstrap relies on identity paging in place, but memory not yet zeroed
 inline paddr Paging::bootstrap(vaddr kernelBase, vaddr kernelData, vaddr kernelEnd, RegionSet<Region<paddr>>& mem, _friend<Machine>) {
   // PML4 setup
   PageEntry* pml4 = (PageEntry*)mem.retrieve_front(pagetableps);
@@ -346,47 +354,51 @@ inline paddr Paging::bootstrap(vaddr kernelBase, vaddr kernelData, vaddr kernelE
   pml4[recptindex] = paddr(pml4) | PageTable;
   DBG::outl(DBG::Paging, "Paging::bootstrap - PML4: ", FmtHex(pml4));
 
-  // PDPT setup for complete kernel heap area -> ready for cloning later
-  PageEntry* pdpt;
-  for (size_t idx = kernbindex; idx < kerntindex; idx += 1) {
-    pdpt = (PageEntry*)mem.retrieve_front(pagetableps);
-    memset(pdpt, 0, pagetableps);
-    pml4[idx] = paddr(pdpt) | PageTable;
-    DBG::outl(DBG::Paging, "Paging::bootstrap - PDPT[", idx, "]: ", FmtHex(pdpt));
-  }
-
-  // PD setup for top 1GB of kernel heap -> needed for FrameManager bootstrap
-  // cf. bootHeapSize << 1G in Machine.cc
-  paddr pd = mem.retrieve_front(pagetableps);
-  memset((ptr_t)pd, 0, pagetableps);
-  pdpt[ptentries - 1] = pd | PageTable;
-  DBG::outl(DBG::Paging, "Paging::bootstrap - Heap PD: ", FmtHex(pd));
-
   // PDPT setup for kernel image
-  pdpt = (PageEntry*)mem.retrieve_front(pagetableps);
+  PageEntry* pdpt = (PageEntry*)mem.retrieve_front(pagetableps);
   memset(pdpt, 0, pagetableps);
-  pml4[kerntindex] = paddr(pdpt) | PageTable;
-  DBG::outl(DBG::Paging, "Paging::bootstrap - PDPT[", kerntindex, "]: ", FmtHex(pdpt));
+  size_t kernindex4 = getPageIndex<kernelpl+2>(kernelBase);
+  pml4[kernindex4] = paddr(pdpt) | PageTable;
+  DBG::outl(DBG::Paging, "Paging::bootstrap - PML4[", kernindex4, "] PDPT: ", FmtHex(pdpt));
 
   // PD and 2M page setup for kernel image
-  paddr memaddr = 0;
-  static const size_t pl = kernelpl+1;
-  for (vaddr base = kernelBase; base < kernelEnd; base += pagesize<pl>()) {
-    pd = mem.retrieve_front(pagetableps);
-    memset((ptr_t)pd, 0, pagetableps);
-    pdpt[getPageIndex<pl>(base)] = paddr(pd) | PageTable;
-    DBG::outl(DBG::Paging, "Paging::bootstrap - Kernel PD: ", FmtHex(pd));
-    vaddr memend = min(kernelEnd, base + pagesize<pl>()) - kernelBase;
-    for (PageEntry* pe = (PageEntry*)pd; memaddr < memend; pe += 1, memaddr += kernelps) {
-      PageType ptype = kernelBase + memaddr < kernelData ? Code : Data;
-      *pe = memaddr | ptype | Kernel | xPS<kernelpl>();
-      DBG::outl(DBG::Paging, "Paging::bootstrap - Kernel Page: ", FmtHex(kernelBase + memaddr), " -> ", PageEntryFmt(*pe));
+  for (vaddr addr = kernelBase; addr < kernelEnd; ) {
+    PageEntry* pd = (PageEntry*)mem.retrieve_front(pagetableps);
+    memset(pd, 0, pagetableps);
+    size_t kernindex3 = getPageIndex<kernelpl+1>(addr);
+    pdpt[kernindex3] = paddr(pd) | PageTable;
+    DBG::outl(DBG::Paging, "Paging::bootstrap - PDPT[", kernindex4, ',', kernindex3, "] PD: ", FmtHex(pd));
+    vaddr end = min(kernelEnd, addr + pagesize<kernelpl+1>());
+    for (; addr < end; addr += kernelps) {
+      size_t kernindex2 = getPageIndex<kernelpl>(addr);
+      PageType ptype = addr < kernelData ? Code : Data;
+      pd[kernindex2] = (addr - kernelBase) | ptype | Kernel | xPS<kernelpl>();
+      DBG::outl(DBG::Paging, "Paging::bootstrap - PD[", kernindex4, ',', kernindex3, ',', kernindex2, "] Page: ", FmtHex(addr), " -> ", PageEntryFmt(pd[kernindex2]));
     }
   }
 
   // install new page table
   installPagetable(paddr(pml4));
   return paddr(pml4);
+}
+
+inline void Paging::bootstrap2(RegionSet<Region<paddr>>& mem, _friend<Machine>) {
+  // PDPT setup for complete kernel heap area -> ready for cloning later
+  for (vaddr addr = kernelbot; addr < kerneltop; addr += pagesize<kernelpl+2>()) {
+    PageEntry* pdpt = (PageEntry*)mem.retrieve_front(pagetableps);
+    setPageEntry<kernelpl+2>(addr, paddr(pdpt) | PageTable);
+    memset(getPageTable<kernelpl+1>(addr), 0, pagetableps);
+    DBG::outl(DBG::Paging, "Paging::bootstrap - PML4[", getPageIndex<kernelpl+2>(addr), "] PDPT: ", FmtHex(pdpt));
+  }
+
+  // PD setup for top 1GB of kernel heap -> needed for FrameManager bootstrap
+  // cf. bootHeapSize << 1G in Machine.cc
+  for (vaddr addr = kerneltop - pagesize<kernelpl+1>(); addr < kerneltop; addr += pagesize<kernelpl+1>()) {
+    PageEntry* pd = (PageEntry*)mem.retrieve_front(pagetableps);
+    setPageEntry<kernelpl+1>(addr, paddr(pd) | PageTable);
+    memset(getPageTable<kernelpl>(addr), 0, pagetableps);
+    DBG::outl(DBG::Paging, "Paging::bootstrap - PDPT[", getPageIndex<kernelpl+2>(addr), ',', getPageIndex<kernelpl+1>(addr), "] PD: ", FmtHex(pd));
+  }
 }
 
 #endif /* _Paging_h_ */
