@@ -51,6 +51,8 @@ void Process::exec(const string& fileName) {
   KASSERT0(check);
   KASSERT1(elfReader.get_class() == ELFCLASS64, elfReader.get_class());
 
+  DBG::outl(DBG::Process, "Process exec: ", fileName);
+
   vaddr currBreak = 0;
   for (int i = 0; i < elfReader.segments.size(); ++i) {
     const ELFIO::segment* pseg = elfReader.segments[i];
@@ -73,13 +75,13 @@ void Process::exec(const string& fileName) {
     PageType pageType = (pseg->get_flags() & PF_W) ? Data :
       (pseg->get_flags() & PF_X) ? Code : RoData;
 
-    DBG::outl(DBG::Process,
-      pageType == Data ? "data" : pageType == Code ? "code" : "ro",
+    DBG::outl(DBG::Process, "Process ",
+      pageType == Data ? "data" : pageType == Code ? "code" : "ro  ",
       " segment: ", FmtHex(vma), '-', FmtHex(fend));
     mapDirect<1>(apma, avma, afend - avma, pageType);
 
     if (mend > fend) {
-      DBG::outl(DBG::Process, "bss: ", FmtHex(fend), '-', FmtHex(mend));
+      DBG::outl(DBG::Process, "Process bss  segment: ", FmtHex(fend), '-', FmtHex(mend));
       if (amend > afend) allocDirect<1>(afend, amend - afend, Data);
       memset((ptr_t)fend, 0, mend - fend);
     }
@@ -88,7 +90,7 @@ void Process::exec(const string& fileName) {
 
   initUser(currBreak);
   ptr_t entry = (ptr_t)elfReader.get_entry();
-  DBG::outl(DBG::Process, "entry: ", FmtHex(entry));
+  DBG::outl(DBG::Process, "Process entry: ", FmtHex(entry));
   createThread((funcvoid2_t)entry, (funcvoid1_t)nullptr, nullptr);
 }
 
