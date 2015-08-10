@@ -49,7 +49,7 @@ void Thread::direct(ptr_t func, ptr_t p1, ptr_t p2, ptr_t p3, ptr_t p4) {
 
 void Thread::cancel() {
   GENASSERT1(this != Runtime::getCurrThread(), Runtime::getCurrThread());
-  if (__atomic_exchange_n(&state, Cancelled, __ATOMIC_RELAXED) == Blocked) {
+  if (__atomic_exchange_n(&state, Cancelled, __ATOMIC_ACQUIRE) == Blocked) {
     unblockInfo->cancelTimeout();
     unblockInfo->cancelBlocking(*this);
     Scheduler::resume(*this);

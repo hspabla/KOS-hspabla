@@ -63,7 +63,7 @@ public:
     GENASSERT1(state != Blocked, state);
     unblockInfo = ubi;
     State expected = Running;
-    return __atomic_compare_exchange_n(&state, &expected, Blocked, 0, __ATOMIC_RELAXED, __ATOMIC_RELAXED);
+    return __atomic_compare_exchange_n(&state, &expected, Blocked, 0, __ATOMIC_RELEASE, __ATOMIC_RELAXED);
   }
 
   bool unblock() {
