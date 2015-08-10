@@ -39,6 +39,7 @@ class Process : public AddressSpace {
   };
 
   SpinLock threadLock;
+  size_t runningThreads;
   ManagedArray<UserThread*,KernelAllocator> threadStore;
 
   vaddr sigHandler;
@@ -50,7 +51,7 @@ public:
   ManagedArray<Semaphore*,KernelAllocator> semStore;    // used in syscalls.cc
   SpinLock semStoreLock;                                // used in syscalls.cc
 
-  Process() : threadStore(1), sigHandler(0), ioHandles(4) {
+  Process() : runningThreads(0), threadStore(1), sigHandler(0), ioHandles(4) {
     ioHandles.store(knew<InputAccess>());
     ioHandles.store(knew<OutputAccess>(StdOut));
     ioHandles.store(knew<OutputAccess>(StdErr));

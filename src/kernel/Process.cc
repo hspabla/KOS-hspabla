@@ -100,7 +100,7 @@ void Process::exit() {
   KASSERT0(ut);
   DBG::outl(DBG::Threads, "Process exit: ", FmtHex(ut));
   threadLock.acquire();
-  for (mword i = 0; i < threadStore.currentIndex(); i += 1) {
+  for (size_t i = 0; i < threadStore.currentIndex(); i += 1) {
     if fastpath(threadStore.valid(i) && threadStore.get(i) != ut)	{
       threadStore.get(i)->cancel();
     }
@@ -114,6 +114,7 @@ mword Process::createThread(funcvoid2_t wrapper, funcvoid1_t func, ptr_t data) {
   KASSERT0(ut);
   threadLock.acquire();
   ut->idx = threadStore.put(ut);
+  runningThreads += 1;
   DBG::outl(DBG::Threads, "UThread create: ", FmtHex(ut), '/', ut->idx);
   ut->start((ptr_t)invokeUser, (ptr_t)wrapper, (ptr_t)func, data);
   threadLock.release();
@@ -126,7 +127,8 @@ void Process::exitThread(ptr_t result) {
   DBG::outl(DBG::Threads, "UThread exit: ", FmtHex(ut), '/', ut->idx);
   releaseStack(ut->stackAddr, ut->stackSize);
   threadLock.acquire();
-  if (threadStore.size() > 1) ut->post(result, threadLock);
+  runningThreads -= 1;
+  if (runningThreads) ut->post(result, threadLock);
   else threadLock.release();
   LocalProcessor::getScheduler()->terminate();
 }
@@ -148,6 +150,7 @@ int Process::joinThread(mword idx, ptr_t& result) {
 bool Process::destroyThread(Thread& t) {
   UserThread& ut = reinterpret_cast<UserThread&>(t);
   ScopedLock<> sl(threadLock);
+  KASSERT0(threadStore.valid(ut.idx));
   threadStore.remove(ut.idx);
   return threadStore.empty();
 }
