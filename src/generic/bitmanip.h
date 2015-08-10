@@ -119,31 +119,52 @@ static inline void bit_flp(mword& a, mword idx) {
 // loop is unrolled at -O3
 // "=&r"(scan) to mark as 'earlyclobber': modified before all input processed
 // "+r"(newmask) to keep newmask = mask
-template<size_t N, bool findset = true>
-static inline mword multiscan(const mword* data) {
+template<size_t N>
+static inline mword multiscan(bool findset, const mword* data, mword idx = 0) {
+
   mword result = 0;
   mword mask = ~mword(0);
   mword newmask = mask;
-  for (size_t i = 0; i < N; i++) {
+
+  size_t i = (idx / bitsize<mword>());
+  if (idx) {
+    result = align_down(idx, bitsize<mword>());
     mword scan;
+    mword datafield = (findset ? data[i] : ~data[i]) & ~bitmask<mword>(idx % bitsize<mword>());
     asm volatile("\
       bsfq %2, %0\n\t\
       cmovzq %3, %0\n\t\
       cmovnzq %4, %1"
     : "=&r"(scan), "+r"(newmask)
-    : "rm"(findset ? data[i] : ~data[i]), "r"(bitsize<mword>()), "r"(mword(0))
+    : "rm"(datafield), "r"(bitsize<mword>()), "r"(mword(0))
+    : "cc");
+    result += scan & mask;
+    mask = newmask;
+    i += 1;
+  }
+
+  for (; i < N; i++) {
+    mword scan;
+    mword datafield = (findset ? data[i] : ~data[i]);
+    asm volatile("\
+      bsfq %2, %0\n\t\
+      cmovzq %3, %0\n\t\
+      cmovnzq %4, %1"
+    : "=&r"(scan), "+r"(newmask)
+    : "rm"(datafield), "r"(bitsize<mword>()), "r"(mword(0))
     : "cc");
     result += scan & mask;
     mask = newmask;
   }
+
   return result;
 }
 
 // loop is unrolled at -O3
 // "=&r"(scan) to mark as 'earlyclobber': modified before all input processed
 // "+r"(newmask) to keep newmask = mask
-template<size_t N, bool findset = true>
-static inline mword multiscan_r(const mword* data) {
+template<size_t N>
+static inline mword multiscan_rev(bool findset, const mword* data) {
   mword result = 0;
   mword mask = ~mword(0);
   mword newmask = mask;
@@ -151,12 +172,13 @@ static inline mword multiscan_r(const mword* data) {
   do {
     i -= 1;
     mword scan;
+    mword datafield = (findset ? data[i] : ~data[i]);
     asm volatile("\
       bsrq %2, %0\n\t\
       cmovzq %3, %0\n\t\
       cmovnzq %4, %1"
     : "=&r"(scan), "+r"(newmask)
-    : "rm"(findset ? data[i] : ~data[i]), "r"(mword(0)), "r"(mword(0))
+    : "rm"(datafield), "r"(mword(0)), "r"(mword(0))
     : "cc");
     result += (scan & mask) + (bitsize<mword>() & ~mask);
     mask = newmask;

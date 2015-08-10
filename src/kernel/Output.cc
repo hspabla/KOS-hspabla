@@ -83,6 +83,7 @@ Bitmap<> DBG::levels;               // stored in .bss, initialized early enough!
 static_assert( sizeof(options)/sizeof(char*) == DBG::MaxLevel, "debug options mismatch" );
 
 void DBG::init( char* dstring, bool msg ) {
+  levels.clrB();
   levels.set(Basic);
   char* wordstart = dstring;
   char* end = wordstart + strlen( dstring );

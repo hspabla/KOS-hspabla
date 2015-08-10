@@ -22,7 +22,7 @@ paddr FrameManager::allocRegion(size_t& size, paddr align, paddr limit) {
   ScopedLock<> sl(lock);
   if (size < kernelps) { // search in small frames first
     for (auto it = smallFrames.begin(); it != smallFrames.end(); ++it) {
-      size_t idx = it->second.findset();
+      size_t idx = it->second.find();
       mword found = 0;
       size_t baseidx;
       paddr baseaddr;
@@ -36,7 +36,7 @@ paddr FrameManager::allocRegion(size_t& size, paddr align, paddr limit) {
           if (aligned(baseaddr, align)) found = defaultps;
         }
         if (found >= size) {
-          for (size_t i = baseidx; i <= idx; i += 1) it->second.clear(i);
+          for (size_t i = baseidx; i <= idx; i += 1) it->second.clr(i);
           if (it->second.empty()) smallFrames.erase(it);
           return baseaddr;
         }
@@ -50,16 +50,16 @@ paddr FrameManager::allocRegion(size_t& size, paddr align, paddr limit) {
 next_small_set:;
     }
 use_large_frame:
-    size_t idx = largeFrames.findset();
+    size_t idx = largeFrames.find();
     if (idx * kernelps + size > limit) goto allocFailed;
-    largeFrames.clear(idx);
+    largeFrames.clr(idx);
     auto it = smallFrames.emplace(idx, Bitmap<ptentries>::filled()).first;
-    for (size_t i = 0; i < size/defaultps; i += 1) it->second.clear(i);
+    for (size_t i = 0; i < size/defaultps; i += 1) it->second.clr(i);
     KASSERT0(!it->second.empty());
     return idx * kernelps;
   } else { // search in large frames by index, same as above
     size = align_up(size, kernelps);
-    size_t idx = largeFrames.findset();
+    size_t idx = largeFrames.find();
     mword found = 0;
     size_t baseidx;
     paddr baseaddr;
@@ -73,7 +73,7 @@ use_large_frame:
         if (aligned(baseaddr, align)) found = kernelps;
       }
       if (found >= size) {
-        for (size_t i = baseidx; i <= idx; i += 1) largeFrames.clear(i);
+        for (size_t i = baseidx; i <= idx; i += 1) largeFrames.clr(i);
         return baseaddr;
       }
       for (;;) { // keeps found while consecutive bits are set
@@ -126,7 +126,7 @@ bool FrameManager::zeroMemory() {
 
 ostream& operator<<(ostream& os, const FrameManager& fm) {
   ScopedLock<> sl(const_cast<FrameManager&>(fm).lock);
-  size_t start = fm.largeFrames.findset();
+  size_t start = fm.largeFrames.find();
   size_t end = start;
   for (;;) {
     if (start >= fm.largeFrameCount) break;

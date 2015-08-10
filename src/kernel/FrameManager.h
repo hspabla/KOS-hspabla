@@ -61,7 +61,7 @@ class FrameManager {
       } else {
         // find appropriate bitmap in smallFrames, or create empty bitmap
         auto it = smallFrames.lower_bound(idxL);
-        if (it == smallFrames.end() || it->first != idxL) it = smallFrames.emplace_hint(it, idxL, Bitmap<ptentries>());
+        if (it == smallFrames.end() || it->first != idxL) it = smallFrames.emplace_hint(it, idxL, Bitmap<ptentries>(0));
         // set bits in bitmap, limited to this bitmap
         while (size > 0 && idxS < ptentries) {
           it->second.set(idxS);
@@ -79,9 +79,9 @@ class FrameManager {
   }
 
   size_t allocLargeIdx() {
-    size_t idx = largeFrames.findset();
+    size_t idx = largeFrames.find();
     KASSERT1(idx < largeFrameCount, "OUT OF MEMORY");
-    largeFrames.clear(idx);
+    largeFrames.clr(idx);
     DBG::outl(DBG::Frame, "FM/allocL: ", FmtHex(idx * kernelps), '/', FmtHex(kernelps));
     return idx;
   }
@@ -92,8 +92,8 @@ class FrameManager {
       smallFrames.emplace(idx, Bitmap<ptentries>::filled());
     }
     auto it = smallFrames.begin();
-    size_t idx2 = it->second.findset();
-    it->second.clear(idx2);
+    size_t idx2 = it->second.find();
+    it->second.clr(idx2);
     if (it->second.empty()) smallFrames.erase(it);
     paddr addr = it->first * kernelps + idx2 * defaultps;
     DBG::outl(DBG::Frame, "FM/allocS: ", FmtHex(addr), '/', FmtHex(defaultps));
@@ -103,7 +103,7 @@ class FrameManager {
 public:
   FrameManager() : largeFrameCount(0), zeroAS(nullptr) {}
 
-  static constexpr size_t getSize( paddr top ) {
+  static size_t getSize( paddr top ) {
     return LFBM::allocsize(divup(top, kernelps));
   }
 

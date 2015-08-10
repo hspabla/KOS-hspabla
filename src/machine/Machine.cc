@@ -494,12 +494,12 @@ void Machine::asyncIrqLoop() {
   for (;;) {
     asyncIrqSem.P();
     for (;;) {
-      mword idx = irqMask.findset();
+      mword idx = irqMask.find();
       if slowpath(idx >= MaxIrqCount) break;
 #if TESTING_REPORT_INTERRUPTS
       StdErr.out1(" AH:", FmtHex(idx));
 #endif
-      irqMask.clear<true>(idx);
+      irqMask.clr<true>(idx);
       for (IrqInfo::Handler f : irqTable[idx].handlers) f.first(f.second);
     }
   }
