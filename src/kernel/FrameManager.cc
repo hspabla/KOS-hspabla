@@ -17,75 +17,72 @@
 #include "kernel/AddressSpace.h"
 #include "kernel/FrameManager.h"
 
-paddr FrameManager::allocRegion(size_t& size, paddr align, paddr limit) {
-  size = align_up(size, defaultps);
+ostream& operator<<(ostream& os, const FrameManager& fm) {
+  ScopedLock<> sl(const_cast<FrameManager&>(fm).lock);
+  size_t top = (fm.topAddress - fm.baseAddress) / fm.largeSize;
+  size_t idx = 0;
+  size_t cnt;
+  while ((cnt = fm.largeFrames.findrange(idx, top))) {
+    os << ' ' << FmtHex(fm.baseAddress + fm.largeSize * idx)
+       << '-' << FmtHex(fm.baseAddress + fm.largeSize * (idx+cnt));
+    idx += cnt;
+  }
+  top = (fm.topAddress - fm.baseAddress) / fm.smallSize;
+  idx = 0;
+  while ((cnt = fm.smallFrames.findrange(idx, top))) {
+    os << ' ' << FmtHex(fm.baseAddress + fm.smallSize * idx)
+       << '-' << FmtHex(fm.baseAddress + fm.smallSize * (idx+cnt));
+    idx += cnt;
+  }
+  return os;
+}
+
+paddr FrameManager::allocRegion(size_t& size, paddr align, paddr lim) {
+  KASSERT1(lim >= baseAddress, FmtHex(lim));
   ScopedLock<> sl(lock);
-  if (size < kernelps) { // search in small frames first
-    for (auto it = smallFrames.begin(); it != smallFrames.end(); ++it) {
-      size_t idx = it->second.find();
-      mword found = 0;
-      size_t baseidx;
-      paddr baseaddr;
-      for (;;) { 
-        if (found) {
-          found += defaultps;
-        } else {
-          baseidx = idx;
-          baseaddr = it->first * kernelps + baseidx * defaultps;
-    if (baseaddr + size > limit) goto use_large_frame;
-          if (aligned(baseaddr, align)) found = defaultps;
-        }
-        if (found >= size) {
-          for (size_t i = baseidx; i <= idx; i += 1) it->second.clr(i);
-          if (it->second.empty()) smallFrames.erase(it);
-          return baseaddr;
-        }
-        for (;;) { // keeps found while consecutive bits are set
-          idx += 1;
-      if (idx >= ptentries) goto next_small_set;
-        if (it->second.test(idx)) break;
-          found = 0;
-        }
+  if (size < largeSize) {                // search in small frames first
+    size = align_up(size, smallSize);
+    lim = lim - size;
+    size_t target = size / smallSize;
+    size_t top = (topAddress - baseAddress) / smallSize;
+    for (size_t c, idx = 0; (c = smallFrames.findrange(idx, top)); idx += c) {
+      paddr addr = baseAddress + smallSize * idx;
+      if ((c >= target) && (addr <= lim)) {
+        // clear entries in small frame bitmap
+        for (size_t i = 0; i < target; i += 1) smallFrames.clr(idx + i);
+        DBG::outl(DBG::Frame, "FM/allocC1: ", FmtHex(addr), '/', size);
+        return addr;
       }
-next_small_set:;
     }
-use_large_frame:
-    size_t idx = largeFrames.find();
-    if (idx * kernelps + size > limit) goto allocFailed;
-    largeFrames.clr(idx);
-    auto it = smallFrames.emplace(idx, Bitmap<ptentries>::filled()).first;
-    for (size_t i = 0; i < size/defaultps; i += 1) it->second.clr(i);
-    KASSERT0(!it->second.empty());
-    return idx * kernelps;
-  } else { // search in large frames by index, same as above
-    size = align_up(size, kernelps);
-    size_t idx = largeFrames.find();
-    mword found = 0;
-    size_t baseidx;
-    paddr baseaddr;
-    for (;;) {
-      if (found) {
-        found += kernelps;
-      } else {
-        baseidx = idx;
-        baseaddr = idx * kernelps;
-    if (baseaddr + size > limit) goto allocFailed;
-        if (aligned(baseaddr, align)) found = kernelps;
+    size_t idx = largeFrames.find();     // try splitting a large frame
+    if (idx != limit<size_t>()) {
+      paddr addr = largeSize * idx;
+      if (addr <= lim) {
+        // remove from large frame bitmap
+        largeFrames.clr(idx);
+        // convert from large to small idx
+        idx = idx * ptentries;
+        // set leftover entries in small frame bitmap
+        for (size_t i = target; i < ptentries; i += 1) smallFrames.set(idx + i);
+        DBG::outl(DBG::Frame, "FM/allocC2: ", FmtHex(addr), '/', size);
+        return addr;
       }
-      if (found >= size) {
-        for (size_t i = baseidx; i <= idx; i += 1) largeFrames.clr(i);
-        return baseaddr;
-      }
-      for (;;) { // keeps found while consecutive bits are set
-        idx += 1;
-    if (idx >= largeFrameCount) goto allocFailed;
-      if (largeFrames.test(idx)) break;
-        found = 0;
+    }
+  } else {                               // search for block in large frames
+    size = align_up(size, largeSize);
+    lim = lim - size;
+    size_t target = size / largeSize;
+    size_t top = (topAddress - baseAddress) / largeSize;
+    for (size_t c, idx = 0; (c = largeFrames.findrange(idx, top)); idx += c) {
+      paddr addr = baseAddress + largeSize * idx;
+      if ((c >= target) && (addr <= lim)) {
+        for (size_t i = 0; i < target; i += 1) largeFrames.clr(idx + i);
+        DBG::outl(DBG::Frame, "FM/allocC3: ", FmtHex(addr), '/', FmtHex(size));
+        return addr;
       }
     }
   }
-allocFailed:
-  KABORTN(FmtHex(size), ' ', FmtHex(align), ' ', FmtHex(limit));
+  KABORTN(FmtHex(size), ' ', FmtHex(align), ' ', FmtHex(lim));
 }
 
 void FrameManager::initZero() {
@@ -104,9 +101,9 @@ void FrameManager::zeroInternal() {
   zdCache.deallocate(zd);
   // map and zero memory without hold FM lock
   DBG::outl(DBG::Frame, "FM/zero: ", FmtHex(addr), '/', FmtHex(size));
-  paddr astart = align_down(addr, kernelps);
+  paddr astart = align_down(addr, largeSize);
   size_t offset = addr - astart;
-  size_t asize = align_up(size + offset, kernelps);
+  size_t asize = align_up(size + offset, largeSize);
   // all mappings use 2M pages
   vaddr v = CurrAS().kmap<kernelpl,false>(0, asize, astart);
   memset((ptr_t)(v + offset), 0,  size);
@@ -122,34 +119,4 @@ bool FrameManager::zeroMemory() {
   if (zeroQueue.empty()) return false;
   zeroInternal();
   return true;
-}
-
-ostream& operator<<(ostream& os, const FrameManager& fm) {
-  ScopedLock<> sl(const_cast<FrameManager&>(fm).lock);
-  size_t start = fm.largeFrames.find();
-  size_t end = start;
-  for (;;) {
-    if (start >= fm.largeFrameCount) break;
-    end = fm.largeFrames.getrange(start, fm.largeFrameCount);
-    os << ' ' << FmtHex(start*kernelps) << '-' << FmtHex(end*kernelps);
-    if (end >= fm.largeFrameCount) break;
-    start = fm.largeFrames.getrange(end, fm.largeFrameCount);
-  }
-  start = topaddr;
-  for (	auto it = fm.smallFrames.begin(); it != fm.smallFrames.end(); ++it ) {
-    if (start != topaddr && it->first * kernelps != end) {
-      os << ' ' << FmtHex(start) << '-' << FmtHex(end);
-      start = topaddr;
-    }
-    for (size_t idx = 0; idx < ptentries; idx += 1) {
-      if (it->second.test(idx)) {
-        if (start == topaddr) end = start = it->first * kernelps + idx * pagesize<1>();
-        end += pagesize<1>();
-      } else if (start != topaddr) {
-        os << ',' << FmtHex(start) << '-' << FmtHex(end);
-        start = topaddr;
-      }
-    }
-  }
-  return os;
 }

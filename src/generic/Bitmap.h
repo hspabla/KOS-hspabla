@@ -171,6 +171,14 @@ public:
     return find(findset, (idx+1) / B, (idx+1) % B, 0);
   }
 
+  size_t findrange(size_t& start, size_t max) const {
+    start = find(start);
+    if (start == limit<size_t>()) return 0;
+    size_t end = find(start, false);
+    if (end == limit<size_t>()) end = max;
+    return end - start;
+  }
+
   size_t find_rev(bool findset = true) const {
     size_t idx = 0;
     for (size_t i = Levels - 1;; i -= 1) {
@@ -179,14 +187,6 @@ public:
       idx = idx * B + ldx;
       if slowpath(i == 0) return idx;
     }
-  }
-
-  size_t getrange( size_t idx, size_t bitcount ) const { // used for printing
-    bool isset = test(idx);
-    do {
-      idx += 1;
-    } while (idx < bitcount && test(idx) == isset);
-    return idx;
   }
 };
 

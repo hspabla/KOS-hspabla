@@ -22,8 +22,6 @@
 #include "kernel/KernelHeap.h"
 #include "kernel/Output.h"
 
-#include <map>
-
 class Machine;
 
 class FrameManager {
@@ -33,10 +31,11 @@ class FrameManager {
   friend ostream& operator<<(ostream&, const FrameManager&);
 
   SpinLock lock;
-  size_t largeFrameCount; // for output and scanning in contig allocation
-  typedef HierarchicalBitmap<ptentries,framebits-pagesizebits<kernelpl>()> LFBM;
-  LFBM largeFrames;
-  map<paddr,Bitmap<ptentries>,less<paddr>,KernelAllocator<paddr>> smallFrames;
+  HierarchicalBitmap<ptentries,framebits-pagesizebits<kernelpl>()> largeFrames;
+  HierarchicalBitmap<ptentries,framebits-pagesizebits<1>()> smallFrames;
+
+  static const size_t largeSize = kernelps;
+  static const size_t smallSize = pagesize<1>();
 
   AddressSpace* zeroAS;
   struct ZeroDescriptor : public IntrusiveList<ZeroDescriptor>::Link {
@@ -47,32 +46,27 @@ class FrameManager {
   IntrusiveList<ZeroDescriptor> zeroQueue;
   HeapCache<sizeof(ZeroDescriptor)> zdCache;
 
+  paddr baseAddress;
+  paddr topAddress;
+
   void releaseInternal(paddr addr, size_t size) {
     DBG::outl(DBG::Frame, "FM/release: ", FmtHex(addr), '/', FmtHex(size));
-    KASSERT1( aligned(addr, defaultps), addr );
-    KASSERT1( aligned(size, defaultps), size );
+    KASSERT1( aligned(addr, smallSize), addr );
+    KASSERT1( aligned(size, smallSize), size );
     while (size > 0) {
-      size_t idxL =  addr / kernelps;
-      size_t idxS = (addr % kernelps) / defaultps;
-      if (idxS == 0 && size >= kernelps) {
-        addr += kernelps;
-        size -= kernelps;
-        largeFrames.set(idxL);
+      if (aligned(addr, largeSize) && size >= largeSize) {
+        largeFrames.set(addr / largeSize);
+        addr += largeSize;
+        size -= largeSize;
       } else {
-        // find appropriate bitmap in smallFrames, or create empty bitmap
-        auto it = smallFrames.lower_bound(idxL);
-        if (it == smallFrames.end() || it->first != idxL) it = smallFrames.emplace_hint(it, idxL, Bitmap<ptentries>(0));
-        // set bits in bitmap, limited to this bitmap
-        while (size > 0 && idxS < ptentries) {
-          it->second.set(idxS);
-          idxS += 1;
-          size -= defaultps;
-          addr += defaultps;
-        }
-        // check for full bitmap; one small page bitmap represents one large page
-        if (it->second.full()) {
-          smallFrames.erase(it);
-          largeFrames.set(idxL);
+        size_t idx = addr / smallSize;
+        smallFrames.set(idx);
+        addr += smallSize;
+        size -= smallSize;
+        // check for full small bitmap -> mark large page as free
+        if (aligned(addr, largeSize) && smallFrames.blockfull(idx)) {
+          smallFrames.blockclr(idx);
+          largeFrames.set(idx / ptentries);
         }
       }
     }
@@ -80,36 +74,38 @@ class FrameManager {
 
   size_t allocLargeIdx() {
     size_t idx = largeFrames.find();
-    KASSERT1(idx < largeFrameCount, "OUT OF MEMORY");
+    KASSERT1(idx != limit<size_t>(), "OUT OF MEMORY");
     largeFrames.clr(idx);
-    DBG::outl(DBG::Frame, "FM/allocL: ", FmtHex(idx * kernelps), '/', FmtHex(kernelps));
+    DBG::outl(DBG::Frame, "FM/allocL: ", FmtHex(idx * largeSize), '/', FmtHex(largeSize));
     return idx;
   }
 
-  paddr allocSmall() {
-    if (smallFrames.empty()) {
-      size_t idx = allocLargeIdx();
-      smallFrames.emplace(idx, Bitmap<ptentries>::filled());
+  paddr allocSmallIdx() {
+    size_t idx = smallFrames.find();
+    if (idx == limit<size_t>()) {
+      idx = allocLargeIdx() * ptentries;
+      smallFrames.blockset(idx);
     }
-    auto it = smallFrames.begin();
-    size_t idx2 = it->second.find();
-    it->second.clr(idx2);
-    if (it->second.empty()) smallFrames.erase(it);
-    paddr addr = it->first * kernelps + idx2 * defaultps;
-    DBG::outl(DBG::Frame, "FM/allocS: ", FmtHex(addr), '/', FmtHex(defaultps));
-    return addr;
+    smallFrames.clr(idx);
+    DBG::outl(DBG::Frame, "FM/allocS: ", FmtHex(idx * smallSize), '/', FmtHex(smallSize));
+    return idx;
   }
 
 public:
-  FrameManager() : largeFrameCount(0), zeroAS(nullptr) {}
+  FrameManager() : zeroAS(nullptr) {} // do not initialize baseAddress, topAddress!
 
-  static size_t getSize( paddr top ) {
-    return LFBM::allocsize(divup(top, kernelps));
+  size_t preinit( paddr bot, paddr top ) {
+    baseAddress = bot;
+    topAddress = top;
+    return largeFrames.allocsize(divup(top - bot, largeSize))
+         + smallFrames.allocsize(divup(top - bot, smallSize));
   }
 
-  void init( bufptr_t p, paddr top ) {
-    largeFrameCount = divup(top, kernelps);
-    largeFrames.init(largeFrameCount, p);
+  void init( bufptr_t p ) {
+    size_t size = topAddress - baseAddress;
+    largeFrames.init(divup(size, largeSize), p);
+    p += largeFrames.allocsize(divup(size, largeSize));
+    smallFrames.init(divup(size, smallSize), p);
   }
 
   template<size_t N>
@@ -117,16 +113,14 @@ public:
     ScopedLock<> sl(lock);
     paddr result;
     switch (N) {
-      case defaultpl: result = allocSmall(); break;
-      case kernelpl:  result = allocLargeIdx() * kernelps; break;
-      default: KABORT0();
+      case 1:        result = baseAddress + allocSmallIdx() * smallSize; break;
+      case kernelpl: result = baseAddress + allocLargeIdx() * largeSize; break;
+      default: KABORT1(N);
     }
     // check for impending memory shortage -> synchronous zeroing!
     while (largeFrames.empty() && !zeroQueue.empty()) zeroInternal();
     return result;
   }
-
-  paddr allocRegion( size_t& size, paddr align, paddr limit );
 
   template<bool zero=true>
   void release( paddr addr, size_t size ) {
@@ -138,6 +132,7 @@ public:
     else releaseInternal(addr, size);
   }
 
+  paddr allocRegion( size_t& size, paddr align, paddr lim );
   void initZero();
   void zeroInternal();
   bool zeroMemory();

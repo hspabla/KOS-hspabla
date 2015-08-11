@@ -227,7 +227,7 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
 
   // allocate and map memory for frame manager <- need paging bootstrapped
   KASSERT0(!mem.empty());
-  size_t fmStart = kerneltop - FrameManager::getSize(endphysmem);
+  size_t fmStart = kerneltop - frameManager.preinit(0, endphysmem);
   vaddr initStart = kerneltop;
   while (initStart + bootHeapSize > fmStart) { // ensure leftover for kernel memory
     paddr start = mem.retrieve_front(kernelps);
@@ -259,7 +259,7 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   bootProcessor.currAS = &kernelSpace;
 
   // initialize frame manager <- need dynamic memory for internal container
-  frameManager.init( (bufptr_t)fmStart, endphysmem );
+  frameManager.init((bufptr_t)fmStart);
   // populate frame manager
   for ( auto it = mem.begin(); it != mem.end(); ++it ) {
     if (kernelBase + it->end <= kernelEnd) {
