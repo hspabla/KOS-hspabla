@@ -135,7 +135,6 @@ class AddressSpace : public Paging {
   template<size_t N>
   vaddr getVmRange(vaddr addr, size_t& size) {
     KASSERT1(mapBottom < mapTop, "no AS memory break set yet");
-    ScopedLock<> sl(vlock);
     vaddr end = (addr >= mapBottom) ? align_up(addr + size, pagesize<N>()) : align_down(mapStart, pagesize<N>());
     vaddr start = align_down(end - size, pagesize<N>());
     if (start < mapBottom) goto allocFailed;
@@ -236,6 +235,7 @@ public:
 
   template<size_t N, bool alloc=true>
   vaddr kmap(vaddr addr, size_t size, paddr pma = topaddr) {
+    ScopedLock<> sl(vlock);
     addr = getVmRange<N>(addr, size);
     MapCode mc = alloc ? (kernel ? Alloc : Lazy) : NoAlloc;
     mapRegion<N>(pma, addr, size, Data, mc);
@@ -260,6 +260,7 @@ public:
   vaddr allocStack(size_t ss) {
     KASSERT1(ss >= minimumStack, ss);
     size_t size = ss + stackGuardPage;
+    ScopedLock<> sl(vlock);
     vaddr vma = getVmRange<stackpl>(0, size);
     KASSERTN(size == ss + stackGuardPage, ss, ' ', size);
     mapRegion<stackpl>(0, vma, stackGuardPage, Data, Guard);
