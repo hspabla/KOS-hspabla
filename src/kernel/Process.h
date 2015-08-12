@@ -44,6 +44,8 @@ class Process : public AddressSpace {
 
   vaddr sigHandler;
 
+  inline UserThread* load(const string& fileName);
+  inline UserThread* setupThread(funcvoid2_t wrapper, funcvoid1_t func, ptr_t data);
   static void invokeUser(funcvoid2_t func, ptr_t arg1, ptr_t arg2) __noreturn;
 
 public:

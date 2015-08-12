@@ -25,18 +25,6 @@
 
 namespace Runtime {
 
-  /**** AddressSpace-related interface ****/
-  static MemoryContext& getDefaultMemoryContext() { return kernelSpace; }
-  static MemoryContext& getMemoryContext()        { return CurrAS(); }
-
-  static vaddr allocThreadStack(size_t ss) {
-    return kernelSpace.allocStack(ss);
-  }
-
-  static void releaseThreadStack(vaddr vma, size_t ss) {
-    kernelSpace.releaseStack(vma, ss);
-  }
-
   static void idleLoop(Scheduler* s) {
     for (;;) {
       mword halt = s->preemption + 3;

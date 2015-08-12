@@ -19,6 +19,7 @@
 
 #include "generic/IntrusiveContainers.h" 
 #include "runtime/Runtime.h"
+#include "runtime/Stack.h"
 
 class Scheduler;
 class UnblockInfo;
@@ -54,8 +55,13 @@ public:
   static Thread* create(size_t ss);
   static Thread* create();
   void destroy();
+  void direct(ptr_t func, ptr_t p1 = nullptr, ptr_t p2 = nullptr, ptr_t p3 = nullptr, ptr_t p4 = nullptr) {
+    stackDirect(stackPointer, func, p1, p2, p3, p4);
+  }
+  void setup(ptr_t func, ptr_t p1 = nullptr, ptr_t p2 = nullptr, ptr_t p3 = nullptr) {
+    stackPointer = stackInit(stackPointer, &Runtime::getMemoryContext(), func, p1, p2, p3);
+  }
   void start(ptr_t func, ptr_t p1 = nullptr, ptr_t p2 = nullptr, ptr_t p3 = nullptr);
-  void direct(ptr_t func, ptr_t p1 = nullptr, ptr_t p2 = nullptr, ptr_t p3 = nullptr, ptr_t p4 = nullptr);
   void cancel();
 
   bool block(UnblockInfo* ubi) {

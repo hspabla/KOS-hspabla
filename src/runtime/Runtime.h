@@ -19,6 +19,7 @@
 
 #if defined(__KOS__)
 
+#include "kernel/AddressSpace.h"
 #include "kernel/Output.h"
 #include "machine/Machine.h"
 #include "machine/Processor.h"
@@ -70,6 +71,17 @@ namespace Runtime {
   /**** AddressSpace-related interface ****/
 
   typedef AddressSpace MemoryContext;
+
+  static MemoryContext& getDefaultMemoryContext() { return kernelSpace; }
+  static MemoryContext& getMemoryContext()        { return CurrAS(); }
+
+  static vaddr allocThreadStack(size_t ss) {
+    return kernelSpace.allocStack(ss);
+  }
+
+  static void releaseThreadStack(vaddr vma, size_t ss) {
+    kernelSpace.releaseStack(vma, ss);
+  }
 
   /**** obtain/use context information ****/
 

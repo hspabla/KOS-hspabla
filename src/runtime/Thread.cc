@@ -17,7 +17,6 @@
 #include "runtime/BlockingSync.h"
 #include "runtime/RuntimeImpl.h"
 #include "runtime/Scheduler.h"
-#include "runtime/Stack.h"
 #include "runtime/Thread.h"
 #include "kernel/Output.h"
 
@@ -39,12 +38,8 @@ void Thread::destroy() {
 }
 
 void Thread::start(ptr_t func, ptr_t p1, ptr_t p2, ptr_t p3) {
-  stackPointer = stackInit(stackPointer, &Runtime::getMemoryContext(), func, p1, p2, p3);
+  setup(func, p1, p2, p3);
   Scheduler::resume(*this);
-}
-
-void Thread::direct(ptr_t func, ptr_t p1, ptr_t p2, ptr_t p3, ptr_t p4) {
-  stackDirect(stackPointer, func, p1, p2, p3, p4);
 }
 
 void Thread::cancel() {

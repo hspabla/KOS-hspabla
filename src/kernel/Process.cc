@@ -29,18 +29,7 @@ void Process::invokeUser(funcvoid2_t func, ptr_t arg1, ptr_t arg2) {
   unreachable();
 }
 
-Process::~Process() {
-  DBG::outl(DBG::Threads, "Process delete: ", FmtHex(this));
-  for (size_t i = 0; i < ioHandles.currentIndex(); i += 1) {
-    Access* a = ioHandles.access(i);
-    if (a) kdelete(a);
-  }
-  for (size_t i = 0; i < semStore.currentIndex(); i += 1) {
-    if (semStore.valid(i)) kdelete(semStore.get(i));
-  }
-}
-
-void Process::exec(const string& fileName) {
+inline Process::UserThread* Process::load(const string& fileName) {
   KASSERT0(threadStore.empty());
   AddressSpace::Temp ast(*this);
   auto iter = kernelFS.find(fileName);
@@ -91,7 +80,35 @@ void Process::exec(const string& fileName) {
   initUser(currBreak);
   ptr_t entry = (ptr_t)elfReader.get_entry();
   DBG::outl(DBG::Process, "Process entry: ", FmtHex(entry));
-  createThread((funcvoid2_t)entry, (funcvoid1_t)nullptr, nullptr);
+  return setupThread((funcvoid2_t)entry, (funcvoid1_t)nullptr, nullptr);
+}
+
+inline Process::UserThread* Process::setupThread(funcvoid2_t wrapper, funcvoid1_t func, ptr_t data) {
+  UserThread* ut = UserThread::create();
+  KASSERT0(ut);
+  threadLock.acquire();
+  ut->idx = threadStore.put(ut);
+  runningThreads += 1;
+  DBG::outl(DBG::Threads, "UThread create: ", FmtHex(ut), '/', ut->idx);
+  ut->setup((ptr_t)invokeUser, (ptr_t)wrapper, (ptr_t)func, data);
+  threadLock.release();
+  return ut;
+}
+
+Process::~Process() {
+  DBG::outl(DBG::Threads, "Process delete: ", FmtHex(this));
+  for (size_t i = 0; i < ioHandles.currentIndex(); i += 1) {
+    Access* a = ioHandles.access(i);
+    if (a) kdelete(a);
+  }
+  for (size_t i = 0; i < semStore.currentIndex(); i += 1) {
+    if (semStore.valid(i)) kdelete(semStore.get(i));
+  }
+}
+
+void Process::exec(const string& fileName) {
+  UserThread* ut = load(fileName);
+  Scheduler::resume(*ut);
 }
 
 // detach all -> cancel all
@@ -110,14 +127,8 @@ void Process::exit() {
 }
 
 mword Process::createThread(funcvoid2_t wrapper, funcvoid1_t func, ptr_t data) {
-  UserThread* ut = UserThread::create();
-  KASSERT0(ut);
-  threadLock.acquire();
-  ut->idx = threadStore.put(ut);
-  runningThreads += 1;
-  DBG::outl(DBG::Threads, "UThread create: ", FmtHex(ut), '/', ut->idx);
-  ut->start((ptr_t)invokeUser, (ptr_t)wrapper, (ptr_t)func, data);
-  threadLock.release();
+  UserThread* ut = Process::setupThread(wrapper, func, data);
+  Scheduler::resume(*ut);
   return ut->idx;
 }
 
