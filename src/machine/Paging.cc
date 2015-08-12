@@ -23,6 +23,7 @@ const BitString<uint64_t, 3, 1> Paging::PageFaultFlags::RSVD;
 const BitString<uint64_t, 4, 1> Paging::PageFaultFlags::ID;
 
 ostream& operator<<(ostream& os, const Paging::PageFaultFlags& f) {
+  if (f.t == 0) { os << '0'; return os; }
   if (f.t & Paging::PageFaultFlags::P())    os << " P";
   if (f.t & Paging::PageFaultFlags::WR())   os << " W/R";
   if (f.t & Paging::PageFaultFlags::US())   os << " U/S";

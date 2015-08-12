@@ -61,8 +61,6 @@ static constexpr size_t pageoffset(mword addr) {
 
 static const size_t pagetablepl  = 1;
 static const size_t pagetableps  = pagesize<pagetablepl>();
-static const size_t defaultpl    = 1;
-static const size_t defaultps    = pagesize<defaultpl>();
 static const size_t kernelpl     = 2;
 static const size_t kernelps     = pagesize<kernelpl>();
 
@@ -76,26 +74,20 @@ static const mword  canonPrefix  = ~bitmask<mword>(pagebits);
 // kernel code/data needs to be at top 2G for mcmodel=kernel
 // use start of last 512G region for device mappings
 // use previous three 512G regions for dynamic kernel memory
-static const mword  usertindex   = ptentries / 2;
-static const mword  recptindex   = ptentries / 2;
-static const mword  kernbindex   = ptentries - 4;
-static const mword  kerntindex   = ptentries - 1;
-static const mword  devptindex   = ptentries - 1;
-
-// basic memory layout
-static const vaddr  userbot      =  pagesize<2>();
-static const vaddr  usertop      = (pagesize<pagelevels>() * usertindex);
-static const vaddr  kernelbot    = (pagesize<pagelevels>() * kernbindex) | canonPrefix;
-static const vaddr  kerneltop    = (pagesize<pagelevels>() * kerntindex) | canonPrefix;
-static const vaddr  deviceAddr   = (pagesize<pagelevels>() * devptindex) | canonPrefix;
+static const vaddr  userbot    =                    pagesize<2>();
+static const vaddr  usertop    =  (ptentries / 2) * pagesize<pagelevels>();
+static const mword  recptindex =   ptentries / 2;
+static const vaddr  kernelbot  = ((ptentries - 4) * pagesize<pagelevels>()) | canonPrefix;
+static const vaddr  kerneltop  = ((ptentries - 1) * pagesize<pagelevels>()) | canonPrefix;
+static const vaddr  deviceAddr = ((ptentries - 1) * pagesize<pagelevels>()) | canonPrefix;
 static_assert(deviceAddr >= kerneltop, "deviceAddr < kerneltop");
 
 // hard-coded device & special mappings -> last 512G segment of virtual memory
-static const vaddr   apicAddr    = deviceAddr + 0 * pagesize<1>();
-static const vaddr ioApicAddr    = deviceAddr + 1 * pagesize<1>();
-static const vaddr  videoAddr    = deviceAddr + 2 * pagesize<1>();
-static const vaddr  cloneBase    = deviceAddr + 3 * pagesize<1>();
-static const vaddr  deviceEnd    = deviceAddr + 4 * pagesize<1>();
+static const vaddr   apicAddr  = deviceAddr + 0 * pagesize<1>();
+static const vaddr ioApicAddr  = deviceAddr + 1 * pagesize<1>();
+static const vaddr  videoAddr  = deviceAddr + 2 * pagesize<1>();
+static const vaddr  cloneBase  = deviceAddr + 3 * pagesize<1>();
+static const vaddr  deviceEnd  = deviceAddr + 4 * pagesize<1>();
 static_assert(vaddr(KERNBASE) >= deviceEnd, "KERNBASE < deviceEnd");
 
 // thread stack constants
