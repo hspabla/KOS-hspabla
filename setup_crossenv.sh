@@ -4,7 +4,10 @@
 # - $GCCDIR: gcc, binutils, newlib (built together)
 # - $GRUBDIR: grub
 # - $TOOLSDIR: gdb, bochs, qemu
+
+# variables set in this file:
 # - change $TMPDIR, $DLDIR and $PTDIR below, if necessary
+# - $ULDIR ends up hardcoded in a search path in gcc - change, if necessary
 
 TMPDIR=/spare/tmp
 cd $(dirname $0)
