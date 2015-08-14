@@ -16,22 +16,6 @@
 ******************************************************************************/
 #include "machine/Paging.h"
 
-const BitString<uint64_t, 0, 1> Paging::PageFaultFlags::P;
-const BitString<uint64_t, 1, 1> Paging::PageFaultFlags::WR;
-const BitString<uint64_t, 2, 1> Paging::PageFaultFlags::US;
-const BitString<uint64_t, 3, 1> Paging::PageFaultFlags::RSVD;
-const BitString<uint64_t, 4, 1> Paging::PageFaultFlags::ID;
-
-ostream& operator<<(ostream& os, const Paging::PageFaultFlags& f) {
-  if (f.t == 0) { os << '0'; return os; }
-  if (f.t & Paging::PageFaultFlags::P())    os << " P";
-  if (f.t & Paging::PageFaultFlags::WR())   os << " W/R";
-  if (f.t & Paging::PageFaultFlags::US())   os << " U/S";
-  if (f.t & Paging::PageFaultFlags::RSVD()) os << " RSVD";
-  if (f.t & Paging::PageFaultFlags::ID())   os << " I/D";
-  return os;
-}
-
 const BitString<uint64_t, 0, 1> Paging::P;
 const BitString<uint64_t, 1, 1> Paging::RW;
 const BitString<uint64_t, 2, 1> Paging::US;
@@ -56,5 +40,21 @@ ostream& operator<<(ostream& os, const Paging::PageEntryFmt& f) {
   if (f.t & Paging::G())    os << " G";
   os << " ADDR:" << FmtHex(f.t & Paging::ADDR());
   if (f.t & Paging::XD())   os << " XD";
+  return os;
+}
+
+const BitString<uint64_t, 0, 1> Paging::PageFaultFlags::P;
+const BitString<uint64_t, 1, 1> Paging::PageFaultFlags::WR;
+const BitString<uint64_t, 2, 1> Paging::PageFaultFlags::US;
+const BitString<uint64_t, 3, 1> Paging::PageFaultFlags::RSVD;
+const BitString<uint64_t, 4, 1> Paging::PageFaultFlags::ID;
+
+ostream& operator<<(ostream& os, const Paging::PageFaultFlags& f) {
+  if (f.t == 0) { os << '0'; return os; }
+  if (f.t & Paging::PageFaultFlags::P())    os << " P";
+  if (f.t & Paging::PageFaultFlags::WR())   os << " W/R";
+  if (f.t & Paging::PageFaultFlags::US())   os << " U/S";
+  if (f.t & Paging::PageFaultFlags::RSVD()) os << " RSVD";
+  if (f.t & Paging::PageFaultFlags::ID())   os << " I/D";
   return os;
 }
