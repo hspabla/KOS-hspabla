@@ -17,17 +17,21 @@
 #include "kernel/AddressSpace.h"
 
 void AddressSpace::print(ostream& os) const {
+  static_assert(recptindex == ptentries / 2, "recptindex must be ptentries / 2");
   os << "AS(" << FmtHex(pagetable) << "):";
-  vaddr start = kernel ? kernelbot : 0;
-  size_t size = 0;
-  while ((size = Paging::testfree(start))) start += size;
+  vaddr end = kernel ? Paging::end() : userbot;
   for (;;) {
-    vaddr end = start;
-    while ((size = Paging::testused(end))) end += size;
-    os << ' ' << FmtHex((start & canonTest) ? (start | canonPrefix) : start)
-       << "-" << FmtHex((end   & canonTest) ? (end   | canonPrefix) : end);
-    start = end;
-    while ((size = Paging::testfree(start))) start += size;
-    if (start >= (kernel ? pow2<size_t>(pagebits) : usertop)) return;
+    vaddr start = end;
+    size_t size;
+    while ((size = Paging::testfree(start))) {
+      start += size;
+      if (kernel == (start < usertop)) return;
+    }
+    end = start;
+    while ((size = Paging::testused(end))) {
+      end += size;
+      if (kernel == (end < usertop)) break;
+    }
+    os << ' ' << FmtHex(start) << "-" << FmtHex(end);
   }
 }

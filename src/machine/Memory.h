@@ -77,7 +77,6 @@ static const mword  canonPrefix  = ~bitmask<mword>(pagebits);
 static const vaddr  userbot    =                    pagesize<2>();
 static const vaddr  usertop    =  (ptentries / 2) * pagesize<pagelevels>();
 static const mword  recptindex =   ptentries / 2;
-static const vaddr  kernelbot  = ((ptentries - 4) * pagesize<pagelevels>()) | canonPrefix;
 static const vaddr  kerneltop  = ((ptentries - 1) * pagesize<pagelevels>()) | canonPrefix;
 static const vaddr  deviceAddr = ((ptentries - 1) * pagesize<pagelevels>()) | canonPrefix;
 static_assert(deviceAddr >= kerneltop, "deviceAddr < kerneltop");

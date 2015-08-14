@@ -133,7 +133,7 @@ public:
   }
 
   paddr allocRegion( size_t& size, paddr align, paddr lim );
-  void initZero();
+  void initZero(_friend<Machine>);
   void zeroInternal();
   bool zeroMemory();
 };

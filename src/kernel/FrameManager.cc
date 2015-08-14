@@ -85,7 +85,10 @@ paddr FrameManager::allocRegion(size_t& size, paddr align, paddr lim) {
   KABORTN(FmtHex(size), ' ', FmtHex(align), ' ', FmtHex(lim));
 }
 
-void FrameManager::initZero() {
+void FrameManager::initZero(_friend<Machine>) {
+  lock.acquire();
+  while (largeFrames.empty() && !zeroQueue.empty()) zeroInternal();
+  lock.release();
   zeroAS = new AddressSpace;
   zeroAS->initUser(userbot);
 }

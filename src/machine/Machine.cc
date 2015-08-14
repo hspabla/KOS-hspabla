@@ -189,7 +189,6 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   DBG::outl(DBG::Boot, "*********** MEM INFO ***********");
   DBG::outl(DBG::Boot, "Boot16:   ", FmtHex(&boot16Begin),  " - ", FmtHex(&boot16End), " -> ", FmtHex(BOOTAP16), '/', FmtHex(boot16Size));
   DBG::outl(DBG::Boot, "Paging:   ", FmtHex(Paging::start()), " - ", FmtHex(Paging::end()));
-  DBG::outl(DBG::Boot, "Dynamic:  ", FmtHex(kernelbot),     " - ", FmtHex(kerneltop));
   DBG::outl(DBG::Boot, "Devices:  ", FmtHex(deviceAddr),    " - ", FmtHex(deviceEnd));
   DBG::outl(DBG::Boot, "Kernel:   ", FmtHex(kernelBase),    " - ", FmtHex(kernelEnd));
   DBG::outl(DBG::Boot, "Boot Seg: ", FmtHex(&__KernelBoot), " - ", FmtHex(&__KernelBootEnd));
@@ -209,7 +208,15 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
     it = memtmp.erase(it);
   }
   KASSERT0(!mem.empty());
-  paddr endphysmem = (--mem.end())->end;
+  paddr topphysmem = (--mem.end())->end;
+
+  // initial virtual memory layout:
+  // [ kernelBot ... heapStart <bootHeap> fmStart <fmMemory> kerneltop ]
+  size_t fmMemory  = frameManager.preinit(0, topphysmem);
+  vaddr  fmStart   = kerneltop - fmMemory;
+  size_t initHeap  = align_up(fmMemory + bootHeapSize, kernelps);
+  vaddr  heapStart = kerneltop - initHeap;
+  DBG::outl(DBG::Boot, "Heap/FM: ", FmtHex(heapStart), ' ', FmtHex(fmStart), ' ', FmtHex(kerneltop));
 
   // reserve memory & copy boot code segment -> easy with identiy mapping
   mem.remove(Region<paddr>(BOOTAP16, BOOTAP16 + boot16Size));
@@ -222,24 +229,11 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   pml4addr = Paging::bootstrap(kernelBase, vaddr(&__KernelData), kernelEnd, mem, _friend<Machine>());
   Multiboot::rebase(kernelBase);
 
-  // bootstrap paging, 2nd part
-  Paging::bootstrap2(mem, _friend<Machine>());
+  // prepare max kernel heap for 1/4 of physical memory; map initial heap
+  vaddr kernelBot = Paging::bootstrap2(mem, topphysmem/4, initHeap, _friend<Machine>());
 
-  // allocate and map memory for frame manager <- need paging bootstrapped
-  KASSERT0(!mem.empty());
-  size_t fmStart = kerneltop - frameManager.preinit(0, endphysmem);
-  vaddr initStart = kerneltop;
-  while (initStart + bootHeapSize > fmStart) { // ensure leftover for kernel memory
-    paddr start = mem.retrieve_front(kernelps);
-    KASSERT0(start != Region<paddr>::error());
-    initStart -= kernelps;
-    // no additional pagetable frames needed - Paging::bootstrap sufficient
-    Paging::mapPage<kernelpl>(initStart, start, Paging::Kernel | Paging::Data, _friend<Machine>());
-    memset((ptr_t)initStart, 0, kernelps);
-  }
-
-  // re-init kernel heap (use leftover from FM init) -> discards boot heap
-  KernelHeap::reinit(initStart, fmStart - initStart);
+  // re-init kernel heap (up until FM memory) -> discards boot heap
+  KernelHeap::reinit(heapStart, fmStart - heapStart);
 
   // rerun all global constructors: can now use proper dynamic memory
   // %rbx is callee-saved; explicitly protect all caller-saved registers
@@ -251,29 +245,22 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   DBG::outl(DBG::Boot);
 
   // init kernel address space
-  kernelSpace.initKernel(kernelbot, initStart, pml4addr);
+  kernelSpace.initKernel(kernelBot, heapStart, pml4addr);
   DBG::outl(DBG::Boot, "AS/init: ", kernelSpace);
 
   // set frame manager & address space in boot processor -> needed for page mappings
   bootProcessor.frameManager = &frameManager;
   bootProcessor.currAS = &kernelSpace;
 
-  // initialize frame manager <- need dynamic memory for internal container
-  frameManager.init((bufptr_t)fmStart);
+  // initialize frame manager after rerun of constructors
+  frameManager.init((bufptr_t)(kerneltop - fmMemory));
   // populate frame manager
   for ( auto it = mem.begin(); it != mem.end(); ++it ) {
-    if (kernelBase + it->end <= kernelEnd) {
-      // zero memory that is currently mapped
-      memset((ptr_t)(kernelBase + it->start), 0, it->end - it->start);
-      frameManager.release<false>(it->start, it->end - it->start);
-    } else {
-      // unmapped memory is zeroed asynchronously
-      frameManager.release(it->start, it->end - it->start);
-    }
+    frameManager.release(it->start, it->end - it->start);
   }
-  DBG::outl(DBG::Boot, "FM/init: ", frameManager);
   // now frame manager can initialize zeroing AS <- needs page mappings
-  frameManager.initZero();
+  frameManager.initZero(_friend<Machine>());
+  DBG::outl(DBG::Boot, "FM/init: ", frameManager);
 
   // parse ACPI tables: find CPUs, APICs, IOAPICs <- needs page mappings
   map<uint32_t,uint32_t> apicMap;
