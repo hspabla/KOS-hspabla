@@ -118,6 +118,7 @@ public:
       default: KABORT1(N);
     }
     // check for impending memory shortage -> synchronous zeroing!
+    // TODO: not bullet-proof!
     while (largeFrames.empty() && !zeroQueue.empty()) zeroInternal();
     return result;
   }

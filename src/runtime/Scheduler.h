@@ -35,7 +35,7 @@ class Scheduler {
   Scheduler* partner;
 
   template<typename... Args>
-  inline void switchThread(Scheduler* target, Args&... a);
+  inline bool switchThread(Scheduler* target, Args&... a);
 
   inline void enqueue(Thread& t);
 
@@ -47,8 +47,8 @@ public:
   void init(Scheduler& p);
   bool idle() { return readyCount == 0; }
   static void resume(Thread& t);
-  void yield();
-  void preempt();
+  bool yield();
+  bool preempt();
   void suspend(BasicLock& lk);
   void suspend(BasicLock& lk1, BasicLock& lk2);
   void terminate() __noreturn;

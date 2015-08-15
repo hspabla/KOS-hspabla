@@ -1003,8 +1003,9 @@ extern "C" void irq_handler_0xe0(mword* isrFrame) { // APIC::WakeIPI
 
 extern "C" void irq_handler_0xed(mword* isrFrame) { // APIC::PreemptIPI
   IsrEntry<true> ie(isrFrame);
-  kernelSpace.runKernelInvalidation();
-  LocalProcessor::getScheduler()->preempt();
+  if (!LocalProcessor::getScheduler()->preempt()) {
+    CurrAS().runInvalidation();
+  }
 }
 
 extern "C" void irq_handler_0xee(mword* isrFrame) { // APIC::TestIPI

@@ -40,7 +40,7 @@ static inline void unlock(BasicLock &l, Args&... a) {
 
 // very simple N-class prio scheduling!
 template<typename... Args>
-inline void Scheduler::switchThread(Scheduler* target, Args&... a) {
+inline bool Scheduler::switchThread(Scheduler* target, Args&... a) {
   preemption += 1;
   CHECK_LOCK_MIN(sizeof...(Args));
   Thread* nextThread;
@@ -55,7 +55,7 @@ inline void Scheduler::switchThread(Scheduler* target, Args&... a) {
   readyLock.release();
   GENASSERT1(target == this, FmtHex(target));
   GENASSERT0(!sizeof...(Args));
-  return;                                         // return to current thread
+  return false;                                   // return to current thread
 
 threadFound:
   readyLock.release();
@@ -81,6 +81,7 @@ threadFound:
     switchThread(nullptr);
     unreachable();
   }
+  return true;
 }
 
 extern "C" Thread* postSwitch(Thread* prevThread, Scheduler* target) {
@@ -112,14 +113,14 @@ void Scheduler::resume(Thread& t) {
   else Runtime::getScheduler()->enqueue(t);
 }
 
-void Scheduler::yield() {
+bool Scheduler::yield() {
   Runtime::DisablePreemption dp(true);
-  preempt();
+  return preempt();
 }
 
-void Scheduler::preempt() {        // expect IRQs disabled, lock count inflated
+bool Scheduler::preempt() {        // expect IRQs disabled, lock count inflated
 #if TESTING_NEVER_MIGRATE
-  switchThread(this);
+  return switchThread(this);
 #else /* migration enabled */
   Scheduler* target = Runtime::getCurrThread()->getAffinity();
 #if TESTING_ALWAYS_MIGRATE
@@ -127,7 +128,7 @@ void Scheduler::preempt() {        // expect IRQs disabled, lock count inflated
 #else /* simple load balancing */
   if (!target) target = (partner->readyCount + 2 < readyCount) ? partner : this;
 #endif
-  switchThread(target);
+  return switchThread(target);
 #endif
 }
 

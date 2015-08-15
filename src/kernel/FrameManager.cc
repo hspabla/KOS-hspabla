@@ -102,7 +102,7 @@ void FrameManager::zeroInternal() {
   paddr addr = zd->addr;
   size_t size = zd->size;
   zdCache.deallocate(zd);
-  // map and zero memory without hold FM lock
+  // map and zero memory without holding FM lock
   DBG::outl(DBG::Frame, "FM/zero: ", FmtHex(addr), '/', FmtHex(size));
   paddr astart = align_down(addr, largeSize);
   size_t offset = addr - astart;
