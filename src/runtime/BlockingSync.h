@@ -27,7 +27,7 @@
 
 class Timeout {
   friend class TimeoutInfo;
-  friend class TimeoutBlockingInfo;
+  friend class TimeoutEventInfo;
   static BasicLock lock;
   static multimap<mword,Thread*> queue;
 
@@ -39,7 +39,7 @@ public:
 class UnblockInfo {
 public:
   virtual void cancelTimeout() {}
-  virtual void cancelBlocking(Thread& t) {}
+  virtual void cancelEvent(Thread& t) {}
 };
 
 class TimeoutInfo : public virtual UnblockInfo {
@@ -62,12 +62,12 @@ public:
   }
 };
 
-class BlockingInfo : public virtual UnblockInfo {
+class EventInfo : public virtual UnblockInfo {
 protected:
   BasicLock& bLock;
   bool timedOut;
 public:
-  BlockingInfo(BasicLock& bl) : bLock(bl),  timedOut(false) {
+  EventInfo(BasicLock& bl) : bLock(bl),  timedOut(false) {
     GENASSERT0(bl.check());
   }
   bool suspend(IntrusiveList<Thread>& queue) {
@@ -80,16 +80,16 @@ public:
     bLock.release();
     return false;
   }
-  virtual void cancelBlocking(Thread& t) {
+  virtual void cancelEvent(Thread& t) {
     timedOut = true;
     AutoLock al(bLock);
     IntrusiveList<Thread>::remove(t);
   }
 };
 
-class TimeoutBlockingInfo : public TimeoutInfo, public BlockingInfo {
+class TimeoutEventInfo : public TimeoutInfo, public EventInfo {
 public:
-  TimeoutBlockingInfo(BasicLock& bl) : BlockingInfo(bl) {}
+  TimeoutEventInfo(BasicLock& bl) : EventInfo(bl) {}
   bool suspend(IntrusiveList<Thread>& queue, mword timeout) {
     Thread* thr = Runtime::getCurrThread();
     Timeout::lock.acquire();
@@ -124,7 +124,7 @@ inline void Timeout::checkExpiry(mword now) {
   }
   lock.release();
   for (auto t : fireList) {
-    t->getUnblockInfo().cancelBlocking(*t);
+    t->getUnblockInfo().cancelEvent(*t);
     Scheduler::resume(*t);
   }
 }
@@ -143,10 +143,10 @@ public:
   // suspend releases bLock; returns 'false' if interrupted
   bool block(BasicLock& bLock, mword timeout = limit<mword>()) {
     if (timeout == limit<mword>()) {
-      BlockingInfo bi(bLock);
+      EventInfo bi(bLock);
       return bi.suspend(queue);
     } else if (timeout > 0) {
-      TimeoutBlockingInfo tbi(bLock);
+      TimeoutEventInfo tbi(bLock);
       return tbi.suspend(queue, timeout);
     } // else non-blocking
     bLock.release();
@@ -271,12 +271,29 @@ public:
   }
 };
 
-class Condition {
+class BasicCondition {
   BlockingQueue bq;
 public:
   bool empty() { return bq.empty(); }
   bool wait(BasicLock& lock) { return bq.block(lock); }
   void signal(BasicLock& lock) { if slowpath(!bq.resume(lock)) lock.release(); }
+};
+
+class Condition : public BasicCondition {
+  BasicLock lock;
+public:
+  bool empty() { return BasicCondition::empty(); }
+  bool wait(Mutex& mtx) {
+    lock.acquire();
+    mtx.release();
+    if slowpath(!BasicCondition::wait(lock)) return false;
+    mtx.acquire();
+    return true;
+  }
+  void signal() {
+    lock.acquire();
+    BasicCondition::signal(lock);
+  }
 };
 
 #endif /* _BlockingSync_h_ */

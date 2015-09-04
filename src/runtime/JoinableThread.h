@@ -22,7 +22,7 @@
 #include "runtime/Thread.h" 
 
 class JoinableThread : public Thread {
-  Condition wait;
+  BasicCondition wait;
   ptr_t* result;
   enum State { Regular, Detached, Joining } state;
 public:

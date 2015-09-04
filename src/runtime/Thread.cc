@@ -46,7 +46,7 @@ void Thread::cancel() {
   GENASSERT1(this != Runtime::getCurrThread(), Runtime::getCurrThread());
   if (__atomic_exchange_n(&state, Cancelled, __ATOMIC_ACQUIRE) == Blocked) {
     unblockInfo->cancelTimeout();
-    unblockInfo->cancelBlocking(*this);
+    unblockInfo->cancelEvent(*this);
     Scheduler::resume(*this);
   }
 }

@@ -22,7 +22,7 @@
 
 class SynchronizedElement {
   template <typename, template<typename> class> friend class SynchronizedArray;
-  Condition wait;
+  BasicCondition wait;
   mword count;
 public:
   SynchronizedElement() : count(0) {}
