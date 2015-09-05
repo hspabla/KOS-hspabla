@@ -296,15 +296,15 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   processorCount = apicMap.size();
   processorTable = knewN<Processor>(processorCount);
   schedulerTable = knewN<Scheduler>(processorCount);
-  AsyncUnmapMarker* aumTableUser = knewN<AsyncUnmapMarker>(processorCount);
-  AsyncUnmapMarker* aumTableKern = knewN<AsyncUnmapMarker>(processorCount);
+  AddressSpaceMarker* uMarker = knewN<AddressSpaceMarker>(processorCount);
+  AddressSpaceMarker* kMarker = knewN<AddressSpaceMarker>(processorCount);
   mword coreIdx = 0;
   for (const pair<uint32_t,uint32_t>& ap : apicMap) {
     DBG::outl( DBG::Boot, "Scheduler ", coreIdx, " at ", FmtHex(schedulerTable + coreIdx));
     schedulerTable[coreIdx].init(schedulerTable[(coreIdx + 1) % processorCount]);
     processorTable[coreIdx].setup(kernelSpace, schedulerTable[coreIdx], frameManager,
-      aumTableUser[coreIdx], aumTableKern[coreIdx], coreIdx, ap.second, ap.first);
-    kernelSpace.initProcessor(aumTableKern[coreIdx]);
+      uMarker[coreIdx], kMarker[coreIdx], coreIdx, ap.second, ap.first);
+    kernelSpace.initProcessor(kMarker[coreIdx]);
     coreIdx += 1;
   }
 

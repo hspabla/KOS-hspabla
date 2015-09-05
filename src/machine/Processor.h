@@ -27,27 +27,27 @@ class Thread;
 class AddressSpace;
 class FrameManager;
 class Scheduler;
-struct AsyncUnmapMarker;
+struct AddressSpaceMarker;
 
 class Processor {
   friend class Machine;             // init and setup routines
   friend class LocalProcessor;      // member offsets for %gs-based access
 
   /* execution context */
-  mword             lockCount;
-  Thread*           currThread;
-  AddressSpace*     currAS;
-  Scheduler*        scheduler;
-  FrameManager*     frameManager;
+  mword               lockCount;
+  Thread*             currThread;
+  AddressSpace*       currAS;
+  Scheduler*          scheduler;
+  FrameManager*       frameManager;
 
   /* processor information */
-  mword             index;
-  mword             apicID;
-  mword             systemID;
+  mword               index;
+  mword               apicID;
+  mword               systemID;
 
   /* asynchronous TLB invalidation */
-  AsyncUnmapMarker* userAUM;
-  AsyncUnmapMarker* kernAUM;
+  AddressSpaceMarker* userASM;
+  AddressSpaceMarker* kernASM;
 
   /* task state segment: kernel stack for interrupts/exceptions */
   static const unsigned int nmiIST = 1;
@@ -78,14 +78,14 @@ class Processor {
   Processor& operator=(const Processor&) = delete; // no assignment
 
   void setup(AddressSpace& as, Scheduler& s, FrameManager& fm,
-    AsyncUnmapMarker& uaum, AsyncUnmapMarker& kaum,
+    AddressSpaceMarker& uasm, AddressSpaceMarker& kasm,
     mword idx, mword apic, mword sys) {
 
     currAS = &as;
     scheduler = &s;
     frameManager = &fm;
-    userAUM = &uaum;
-    kernAUM = &kaum;
+    userASM = &uasm;
+    kernASM = &kasm;
     index = idx;
     apicID = apic;
     systemID = sys;
@@ -95,7 +95,7 @@ public:
   Processor() : lockCount(1), currThread(nullptr), currAS(nullptr),
     scheduler(nullptr), frameManager(nullptr),
     index(0), apicID(0), systemID(0),
-    userAUM(nullptr), kernAUM(nullptr) {}
+    userASM(nullptr), kernASM(nullptr) {}
 
   static inline bool userSegment(mword cs) {
     // check for not kernCS, because userCS (always?) has bits 0,1 set
@@ -181,11 +181,11 @@ public:
   static mword getSystemID() {
     return get<mword, offsetof(Processor, systemID)>();
   }
-  static AsyncUnmapMarker* getUserAUM() {
-    return get<AsyncUnmapMarker*,offsetof(Processor, userAUM)>();
+  static AddressSpaceMarker* getUserASM() {
+    return get<AddressSpaceMarker*,offsetof(Processor, userASM)>();
   }
-  static AsyncUnmapMarker* getKernAUM() {
-    return get<AsyncUnmapMarker*,offsetof(Processor, kernAUM)>();
+  static AddressSpaceMarker* getKernASM() {
+    return get<AddressSpaceMarker*,offsetof(Processor, kernASM)>();
   }
   static vaddr getCloneAddr() {
     return cloneBase + pagetableps * getIndex();

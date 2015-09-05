@@ -22,7 +22,7 @@
 #include "kernel/Output.h"
 #include "machine/Paging.h"
 
-struct AsyncUnmapMarker : public IntrusiveList<AsyncUnmapMarker>::Link {
+struct AddressSpaceMarker : public IntrusiveList<AddressSpaceMarker>::Link {
   sword enterEpoch;
 };
 
@@ -32,22 +32,22 @@ class AddressSpace : public Paging {
   AddressSpace(const AddressSpace&) = delete;            // no copy
   AddressSpace& operator=(const AddressSpace&) = delete; // no assignment
 
-  struct AsyncUnmapDescriptor : public IntrusiveList<AsyncUnmapDescriptor>::Link {
+  struct MemoryDescriptor : public IntrusiveList<MemoryDescriptor>::Link {
     vaddr  vma;
     paddr  pma;
     size_t size;
     bool   alloc;
-    AsyncUnmapDescriptor(vaddr v, paddr p, size_t s, bool a)
+    MemoryDescriptor(vaddr v, paddr p, size_t s, bool a)
       : vma(v), pma(p), size(s), alloc(a) {}
-    AsyncUnmapDescriptor(const AsyncUnmapDescriptor&) = default;
-    AsyncUnmapDescriptor& operator=(const AsyncUnmapDescriptor&) = default;
+    MemoryDescriptor(const MemoryDescriptor&) = default;
+    MemoryDescriptor& operator=(const MemoryDescriptor&) = default;
   };
 
   SpinLock ulock;          // lock protecting page invalidation data
   sword unmapEpoch;        // unmap epoch counter
-  IntrusiveList<AsyncUnmapDescriptor> unmapList; // list of pages to unmap
-  IntrusiveList<AsyncUnmapMarker> markerList;    // list of CPUs active in AS
-  HeapCache<sizeof(AsyncUnmapDescriptor)> audCache;
+  IntrusiveList<MemoryDescriptor> memoryList; // list of pages to unmap
+  IntrusiveList<AddressSpaceMarker> markerList;    // list of CPUs active in AS
+  HeapCache<sizeof(MemoryDescriptor)> mdCache;
 
   SpinLock vlock;          // lock protecting virtual address range
   vaddr mapBottom, mapStart, mapTop;
@@ -92,33 +92,33 @@ class AddressSpace : public Paging {
       bool alloc = (mc == Alloc && pma != guardPage && pma != lazyPage);
       DBG::outl(DBG::VM, "AS(", FmtHex(pagetable), ")/post: ", FmtHex(vma), '/', FmtHex(pagesize<N>()), " -> ", FmtHex(pma), " epoch:", unmapEpoch);
       ScopedLock<> sl(ulock);
-      AsyncUnmapDescriptor* aud = new (audCache.allocate()) AsyncUnmapDescriptor(vma, pma, pagesize<N>(), alloc);
-      unmapList.push_back(*aud);
+      MemoryDescriptor* md = new (mdCache.allocate()) MemoryDescriptor(vma, pma, pagesize<N>(), alloc);
+      memoryList.push_back(*md);
       unmapEpoch += 1;
     }
   }
 
-  void enter(AsyncUnmapMarker& aum) {
-    aum.enterEpoch = unmapEpoch;
-    markerList.push_back(aum);
+  void enter(AddressSpaceMarker& marker) {
+    marker.enterEpoch = unmapEpoch;
+    markerList.push_back(marker);
   }
 
   template<bool invalidate>
-  void leave(AsyncUnmapMarker& aum) {
+  void leave(AddressSpaceMarker& marker) {
     KASSERT0(!markerList.empty());
-    bool front = (&aum == markerList.front());
-    IntrusiveList<AsyncUnmapMarker>::remove(aum);
+    bool front = (&marker == markerList.front());
+    IntrusiveList<AddressSpaceMarker>::remove(marker);
 
     // explicit TLB invalidation of TLB entries for pages removed since
     // 'enterEpoch'.  Invalidation iterates backwards -> easier!
     // In kernelSpace, pages are G(lobal), so TLBs not flushed at 'mov cr3'.
     if (invalidate) {
-      AsyncUnmapDescriptor* aud = unmapList.back();
-      for (sword e = unmapEpoch; e - aum.enterEpoch > 0; e -= 1) {
-        KASSERT0(aud != unmapList.fence());
-        DBG::outl(DBG::VM, "AS(", FmtHex(pagetable), ")/kinv: ", FmtHex(aud->vma), '/', FmtHex(aud->size), " -> ", FmtHex(aud->pma), " epoch:", e-1);
-        CPU::InvTLB(aud->vma);
-        aud = IntrusiveList<AsyncUnmapDescriptor>::prev(*aud);
+      MemoryDescriptor* md = memoryList.back();
+      for (sword e = unmapEpoch; e - marker.enterEpoch > 0; e -= 1) {
+        KASSERT0(md != memoryList.fence());
+        DBG::outl(DBG::VM, "AS(", FmtHex(pagetable), ")/kinv: ", FmtHex(md->vma), '/', FmtHex(md->size), " -> ", FmtHex(md->pma), " epoch:", e-1);
+        CPU::InvTLB(md->vma);
+        md = IntrusiveList<MemoryDescriptor>::prev(*md);
       }
     } else KASSERT0(!kernel);
 
@@ -126,14 +126,14 @@ class AddressSpace : public Paging {
     // flushed from all TLBs and can be removed from list.
     if (front) {
       sword end = markerList.empty() ? unmapEpoch : markerList.front()->enterEpoch;
-      for (sword e = aum.enterEpoch; end - e > 0; e += 1) {
-        KASSERT0(!unmapList.empty());
-        AsyncUnmapDescriptor* aud = unmapList.front();
-        DBG::outl(DBG::VM, "AS(", FmtHex(pagetable), ")/inv: ", FmtHex(aud->vma), '/', FmtHex(aud->size), " -> ", FmtHex(aud->pma), (aud->alloc ? "a" : ""), " epoch:", e);
-        putVmRange(aud->vma, aud->size);
-        if (aud->alloc) CurrFM().release(aud->pma, aud->size);
-        IntrusiveList<AsyncUnmapDescriptor>::remove(*aud);
-        audCache.deallocate(aud);
+      for (sword e = marker.enterEpoch; end - e > 0; e += 1) {
+        KASSERT0(!memoryList.empty());
+        MemoryDescriptor* md = memoryList.front();
+        DBG::outl(DBG::VM, "AS(", FmtHex(pagetable), ")/inv: ", FmtHex(md->vma), '/', FmtHex(md->size), " -> ", FmtHex(md->pma), (md->alloc ? "a" : ""), " epoch:", e);
+        putVmRange(md->vma, md->size);
+        if (md->alloc) CurrFM().release(md->pma, md->size);
+        IntrusiveList<MemoryDescriptor>::remove(*md);
+        mdCache.deallocate(md);
       }
     }
   }
@@ -174,7 +174,7 @@ public:
     KASSERT0(pagetable != topaddr);
     DBG::outl(DBG::VM, "AS(", FmtHex(pagetable), ")/destruct:", FmtHex(pagetable));
     KASSERT1(pagetable != CPU::readCR3(), FmtHex(CPU::readCR3()));
-    KASSERT0(unmapList.empty());
+    KASSERT0(memoryList.empty());
     KASSERT0(markerList.empty());
     CurrFM().release(pagetable, pagetableps);
   }
@@ -194,14 +194,14 @@ public:
     mapStart = mapTop = usertop;
   }
 
-  void initProcessor(AsyncUnmapMarker& aum) {
+  void initProcessor(AddressSpaceMarker& marker) {
     KASSERT0(kernel);
     ScopedLock<> sl(ulock);
     if (markerList.empty()) {
-      enter(aum);
-      leave<true>(aum);
+      enter(marker);
+      leave<true>(marker);
     }
-    enter(aum);
+    enter(marker);
   }
 
   inline void runInvalidation();
@@ -214,14 +214,14 @@ public:
     KASSERT0(pagetable != topaddr);
     if (prevAS != this) {
       DBG::outl(DBG::Scheduler, "AS(", FmtHex(prevAS->pagetable), ")/switchTo: ", FmtHex(pagetable));
-      AsyncUnmapMarker* aum = LocalProcessor::getUserAUM();
+      AddressSpaceMarker* marker = LocalProcessor::getUserASM();
       if (prevAS->user()) {
         if (destroyPrev) {
           DBG::outl(DBG::VM, "AS(", FmtHex(pagetable), ")/destroy:", *prevAS);
           Paging::clear(align_down(userbot, pagesize<pagelevels>()), align_up(usertop, pagesize<pagelevels>()), CurrFM());
         }
         ScopedLock<> sl(prevAS->ulock);
-        prevAS->leave<false>(*aum);
+        prevAS->leave<false>(*marker);
       } else {
         KASSERT0(!destroyPrev);
         prevAS->runInvalidation(); // prevAS == &kernelSpace
@@ -230,7 +230,7 @@ public:
       LocalProcessor::setCurrAS(this);
       if (user()) {
         ScopedLock<> sl(ulock);
-        enter(*aum);
+        enter(*marker);
       }
     } else {
       KASSERT0(!destroyPrev);
@@ -338,9 +338,9 @@ inline AddressSpace::AddressSpace(const bool k) : unmapEpoch(0),
 inline void AddressSpace::runInvalidation() {
   if (!kernel) kernelSpace.runInvalidation();
   ScopedLock<> sl(ulock);
-  AsyncUnmapMarker* aum = kernel ? LocalProcessor::getKernAUM() : LocalProcessor::getUserAUM();
-  leave<true>(*aum);
-  enter(*aum);
+  AddressSpaceMarker* marker = kernel ? LocalProcessor::getKernASM() : LocalProcessor::getUserASM();
+  leave<true>(*marker);
+  enter(*marker);
 }
 
 static inline AddressSpace& CurrAS() {
