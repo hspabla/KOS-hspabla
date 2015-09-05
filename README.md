@@ -16,7 +16,8 @@ Known bugs are described in <tt>BUGS.md</tt>.
 
 ### Documentation
 
-TBD
+A [draft document](https://cs.uwaterloo.ca/~mkarsten/kosdoc.pdf) describes
+the principles, design, and implementation of KOS.
 
 
 ### Contributors
