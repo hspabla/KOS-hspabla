@@ -24,11 +24,11 @@
 class JoinableThread : public Thread {
   BasicCondition wait;
   ptr_t* result;
-  enum State { Regular, Detached, Joining } state;
+  enum State { Regular, Detached, Joining } jState;
 public:
-  JoinableThread(vaddr sb, size_t ss) : Thread(sb, ss), state(Regular) {}
+  JoinableThread(vaddr sb, size_t ss) : Thread(sb, ss), jState(Regular) {}
   void post(ptr_t res, BasicLock& lock) {
-    if (state == Detached) return;
+    if (jState == Detached) return;
     if (wait.empty()) {
       result = &res;
       wait.wait(lock);
@@ -38,8 +38,8 @@ public:
     }
   }
   bool join(ptr_t& res, BasicLock& l) {
-    if (state != Regular) return false;
-    state = Joining;
+    if (jState != Regular) return false;
+    jState = Joining;
     if (wait.empty()) {
       result = &res;
       wait.wait(l);
