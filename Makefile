@@ -16,7 +16,7 @@ tgz: vclean
 	cfg config LICENSE Makefile patches README setup_crossenv.sh src
 
 test:
-	sh testsuite.sh
+	./testsuite.sh
 
 .DEFAULT:
 	nice -10 $(MAKE) -C src -j $(shell nproc || echo 1) $@
