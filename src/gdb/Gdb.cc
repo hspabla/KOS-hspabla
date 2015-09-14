@@ -243,7 +243,7 @@ void initGdb(mword bspIdx) {
   Machine::setupIDT(0x10, (vaddr)catchException0x10);
   Machine::setupIDT(0xef, (vaddr)catchException0xef);
   startGdbCpu(bspIdx);
-  StdOut.printl("Waiting for Gdb connection", kendl);
+  StdOut.printl<false>("Waiting for Gdb connection", kendl);
   CPU::forceTrap();
 }
 

@@ -190,6 +190,9 @@ public:
   static vaddr getCloneAddr() {
     return cloneBase + pagetableps * getIndex();
   }
+  static vaddr getZeroAddr() {
+    return zeroBase + kernelps * getIndex();
+  }
   static void setKernelStack() {
     const mword o = offsetof(Processor, tss) + offsetof(TaskStateSegment, rsp);
     static_assert(o == TSSRSP, "TSSRSP");

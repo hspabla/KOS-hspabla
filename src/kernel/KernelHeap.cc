@@ -36,7 +36,7 @@ static_assert(DEFAULT_GRANULARITY == kernelps, "dlmalloc DEFAULT_GRANULARITY != 
 
 void* dl_mmap(void* addr, size_t len, int, int, int, _off64_t) {
   KASSERT1( aligned(len, size_t(DEFAULT_GRANULARITY)), len);
-  vaddr va = kernelSpace.kmap<kernelpl>(vaddr(addr), len);
+  vaddr va = kernelAS.mmap<kernelpl>(vaddr(addr), len);
   return (void*)va;
 }
 
@@ -46,7 +46,7 @@ int dl_munmap(void* addr, size_t len) {
     DeferredUnmapDescriptor* dud = new (addr) DeferredUnmapDescriptor(vaddr(addr), len);
     mallocUnmapList->push_back(*dud);
   } else {
-    kernelSpace.kunmap<kernelpl>(vaddr(addr), len);
+    kernelAS.munmap<kernelpl>(vaddr(addr), len);
   }
   return 0;
 }
@@ -77,6 +77,6 @@ void KernelHeap::legacy_free(ptr_t p) {
   while (!ulist.empty()) {
     DeferredUnmapDescriptor* dud = ulist.front();
     ulist.pop_front();
-    kernelSpace.kunmap<kernelpl>(dud->addr, dud->len);
+    kernelAS.munmap<kernelpl>(dud->addr, dud->len);
   }
 }

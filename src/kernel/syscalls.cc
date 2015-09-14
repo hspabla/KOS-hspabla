@@ -135,14 +135,14 @@ extern "C" int _mmap(void** addr, size_t len, int protflags, int fildes, off_t o
   KASSERT1(flags == 0, flags);
   KASSERT1(fildes == -1, fildes);
   KASSERT1(off == 0, off);
-  vaddr va = CurrProcess().kmap<1>(vaddr(*addr), len);
+  vaddr va = CurrProcess().mmap<1>(vaddr(*addr), len);
   if (va == topaddr) return -ENOMEM; // shouldn't happen currently...
   *addr = (void*)va;
   return 0;
 }
 
 extern "C" int _munmap(void* addr, size_t len) {
-  CurrProcess().kunmap<1>(vaddr(addr), len);
+  CurrProcess().munmap<1>(vaddr(addr), len);
   return 0;
 }
 

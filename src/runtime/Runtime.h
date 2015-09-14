@@ -58,8 +58,6 @@ namespace Runtime {
     mword getCycleCount() const  { return tscTotal; }
   };
 
-  typedef CPU::MachContext MachContext;
-
   /**** preemption enable/disable/fake ****/
 
   struct DisablePreemption {
@@ -68,19 +66,21 @@ namespace Runtime {
     ~DisablePreemption() { LocalProcessor::unlock(true); }  // full unlock
   };
 
+  static void EnablePreemption() { LocalProcessor::unlock(true); } // full unlock
+
   /**** AddressSpace-related interface ****/
 
   typedef AddressSpace MemoryContext;
 
-  static MemoryContext& getDefaultMemoryContext() { return kernelSpace; }
+  static MemoryContext& getDefaultMemoryContext() { return defaultAS; }
   static MemoryContext& getMemoryContext()        { return CurrAS(); }
 
   static vaddr allocThreadStack(size_t ss) {
-    return kernelSpace.allocStack(ss);
+    return kernelAS.allocStack(ss);
   }
 
   static void releaseThreadStack(vaddr vma, size_t ss) {
-    kernelSpace.releaseStack(vma, ss);
+    kernelAS.releaseStack(vma, ss);
   }
 
   /**** obtain/use context information ****/
@@ -93,7 +93,6 @@ namespace Runtime {
   /**** helper routines for scheduler ****/
 
   static void idleLoop(Scheduler*);
-  static void postResume(bool, Thread&, AddressSpace&);
 
   /**** debug output routines ****/
 

@@ -78,11 +78,15 @@ void Processor::init3(funcvoid0_t func) {
   MSR::write(MSR::SYSCALL_CSTAR, 0x0);
   MSR::write(MSR::SYSCALL_SFMASK, CPU::RFlags::IF()); // disable interrupts during syscall
 
+  // init async TLB invalidation on this processor
+  kernelAS.initInvalidation();
+  defaultAS.initInvalidation();
+
   // set up TSS: rsp[0] is set to per-thread kernel stack before sysretq
   memset(&tss, 0, sizeof(TaskStateSegment));
 
   // dedicated fault stack for some exceptions handlers
-  vaddr fstack = kernelSpace.allocStack(faultStack) + faultStack;
+  vaddr fstack = kernelAS.allocStack(faultStack) + faultStack;
   tss.ist[nmiIST-1] = fstack;
   tss.ist[dbfIST-1] = fstack;
   tss.ist[stfIST-1] = fstack;

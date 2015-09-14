@@ -54,6 +54,7 @@ KernelOutput StdDbg(dbg_buffer);
 
 static const char* options[] = {
   "acpi",
+  "addressSpace",
   "boot",
   "basic",
   "cdi",
@@ -106,7 +107,7 @@ void DBG::init( char* dstring, bool msg ) {
     if ( level != size_t(-1) ) {
       levels.set(level);
       if (msg) {
-        StdDbg.printl("matched debug option: ", wordstart, '=', options[level], kendl);
+        StdDbg.printl<false>("matched debug option: ", wordstart, '=', options[level], kendl);
       }
     } else if (msg) {
       KERR::outl("unmatched debug option: ", wordstart);

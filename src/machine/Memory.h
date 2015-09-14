@@ -71,12 +71,15 @@ static const mword  canonPrefix  = ~bitmask<mword>(pagebits);
 
 // lower half of virtual memory available to user-level
 // use first entry in upper half for recursive page directories
+// use next entry for mapping memory for zeroing
 // kernel code/data needs to be at top 2G for mcmodel=kernel
 // use start of last 512G region for device mappings
 // use previous three 512G regions for dynamic kernel memory
 static const vaddr  userbot    =                    pagesize<2>();
 static const vaddr  usertop    =  (ptentries / 2) * pagesize<pagelevels>();
 static const mword  recptindex =   ptentries / 2;
+static const vaddr  zeroBase   =  (usertop        + pagesize<pagelevels>()) | canonPrefix;
+static const vaddr  kernelbot  =  (zeroBase       + pagesize<pagelevels>()) | canonPrefix;
 static const vaddr  kerneltop  = ((ptentries - 1) * pagesize<pagelevels>()) | canonPrefix;
 static const vaddr  deviceAddr = ((ptentries - 1) * pagesize<pagelevels>()) | canonPrefix;
 static_assert(deviceAddr >= kerneltop, "deviceAddr < kerneltop");

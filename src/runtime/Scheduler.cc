@@ -67,15 +67,15 @@ threadFound:
   else currThread->nextScheduler = this;          // suspend/resume to same processor
   unlock(a...);                                   // ...thus can unlock now
   CHECK_LOCK_COUNT(1);
-  Runtime::debugS("Thread switch <", (target ? 'Y' : 'S'), ">: ", FmtHex(currThread), '(', FmtHex(currThread->stackPointer), ") to ", FmtHex(nextThread), '(', FmtHex(nextThread->stackPointer), ')');
+  Runtime::debugS("Thread switch <", (target ? 'Y' : 'S'), ">: ", FmtHex(currThread), " to ", FmtHex(nextThread));
 
-  Runtime::MemoryContext& ctx = Runtime::getMemoryContext();
+  Runtime::MemoryContext& ctx = Runtime::preThreadSwitch();
   Runtime::setCurrThread(nextThread);
   Thread* prevThread = stackSwitch(currThread, target, &currThread->stackPointer, nextThread->stackPointer);
   // REMEMBER: Thread might have migrated from other processor, so 'this'
   //           might not be currThread's Scheduler object anymore.
   //           However, 'this' points to prevThread's Scheduler object.
-  Runtime::postResume(false, *prevThread, ctx);
+  Runtime::postThreadResume(*prevThread, ctx);
   if (currThread->state == Thread::Cancelled) {
     currThread->state = Thread::Finishing;
     switchThread(nullptr);
@@ -91,7 +91,8 @@ extern "C" Thread* postSwitch(Thread* prevThread, Scheduler* target) {
 }
 
 extern "C" void invokeThread(Thread* prevThread, Runtime::MemoryContext* ctx, funcvoid3_t func, ptr_t arg1, ptr_t arg2, ptr_t arg3) {
-  Runtime::postResume(true, *prevThread, *ctx);
+  Runtime::postThreadResume(*prevThread, *ctx);
+  Runtime::EnablePreemption();
   func(arg1, arg2, arg3);
   Runtime::getScheduler()->terminate();
 }

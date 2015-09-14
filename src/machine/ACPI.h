@@ -359,7 +359,7 @@ void* AcpiOsMapMemory(ACPI_PHYSICAL_ADDRESS Where, ACPI_SIZE Length) {
   DBG::outl(DBG::MemAcpi, "acpi map: ", FmtHex(Where), '/', FmtHex(Length));
   paddr pma = align_down(paddr(Where), pagesize<1>());
   size_t size = align_up(paddr(Where) + Length, pagesize<1>()) - pma;
-  vaddr vma = kernelSpace.kmap<1,false>( 0, size, pma );
+  vaddr vma = kernelAS.mmap<1,false>( 0, size, pma );
   mappings.insert( { vma,size} );
   return (void*)(vma + Where - pma);
 }
@@ -368,7 +368,7 @@ void AcpiOsUnmapMemory(void* LogicalAddress, ACPI_SIZE Size) {
   DBG::outl(DBG::MemAcpi, "acpi unmap: ", FmtHex(LogicalAddress), '/', FmtHex(Size));
   vaddr vma = align_down(vaddr(LogicalAddress), pagesize<1>());
   size_t size = align_up(Size + vaddr(LogicalAddress) - vma, pagesize<1>());
-  kernelSpace.kunmap<1,false>( vma, size );
+  kernelAS.munmap<1,false>( vma, size );
   mappings.erase( {vma, size} );
 }
 

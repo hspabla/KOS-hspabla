@@ -47,13 +47,13 @@ You should be back in the main directory. Run `make` to get a list of build targ
 
 #### Hardware Emulation
 
-To execute KOS with hardware emulation (qemu, bochs, or VirtualBox), run either of these commands:
+To execute KOS with hardware emulation (*qemu*, *bochs*, or *VirtualBox*), run either of these commands:
 
 `make run`  
 `make bochs`  
-`make vbox` -- requires VirtualBox setup, start with `cfg/KOS.vbox.default`
+`make vbox` -- requires *VirtualBox* setup, start with `cfg/KOS.vbox.default`
 
-When executing KOS, the system should show a number of bootstrap messages and then get into a split-screen mode, where the first 20 lines are showing output from several threads running on several cores and the bottom 5 lines show characters as keys are pressed. If the *memoryhog* user application is executed (see `main/InitProcess.cc`), the system eventually stops with an "OUT OF MEMORY" error message.
+When executing KOS, the system should show bootstrap debug messages and then enter a split-screen mode, where the first 20 lines are showing output from several threads running on several cores and the bottom 5 lines show characters as keys are pressed. If the *memoryhog* user application is executed (see `main/InitProcess.cc`), the system eventually stops with an "OUT OF MEMORY" error message.
 
 Running KOS in *qemu* creates several log files that can be used to diagnose problems:
 
@@ -62,6 +62,17 @@ Running KOS in *qemu* creates several log files that can be used to diagnose pro
 `/tmp/qemu.log` -- currently disabled, see `QEMU_LOG` in `Makefile.config`
 
 `KOS.dbg` and `KOS.serial` are two different output channels internally, but currently contain essentially the same information.  Running KOS with *bochs* or *VirtualBox* only produces `/tmp/KOS.serial`.
+
+
+#### Testsuite
+
+The testsuite (requires default setup with *memoryhog*) is run with the command:
+
+`make test`
+
+It tests all combinations of compiler (*gcc*, *clang*) and virtual machine (*qemu*, *VirtualBox*, *bochs*) with both regular and optimized compilation. If successful, the testsuite completes with:
+
+`TESTSUITE FINISHED - SUCCESS`
 
 
 #### PXE Boot

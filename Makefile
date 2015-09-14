@@ -15,5 +15,8 @@ tgz: vclean
 	--exclude cfg/Logs --exclude cfg/KOS.vbox --exclude cfg/KOS.vbox-prev \
 	cfg config LICENSE Makefile patches README setup_crossenv.sh src
 
+test:
+	sh testsuite.sh
+
 .DEFAULT:
 	nice -10 $(MAKE) -C src -j $(shell nproc || echo 1) $@

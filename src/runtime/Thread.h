@@ -26,7 +26,6 @@ class UnblockInfo;
 
 class Thread : public IntrusiveList<Thread>::Link {
   friend class Scheduler;   // Scheduler accesses many internals
-  friend void Runtime::postResume(bool, Thread&, AddressSpace&);
 
   vaddr stackPointer;       // holds stack pointer while thread inactive
   vaddr stackBottom;        // bottom of allocated memory for thread/stack
@@ -36,7 +35,6 @@ class Thread : public IntrusiveList<Thread>::Link {
   bool affinity;            // stick with scheduler
   Scheduler* nextScheduler; // resume on same core (for now)
 
-  Runtime::MachContext ctx;
   Runtime::ThreadStats stats;
 
   Thread(const Thread&) = delete;
@@ -58,11 +56,12 @@ public:
   void direct(ptr_t func, ptr_t p1 = nullptr, ptr_t p2 = nullptr, ptr_t p3 = nullptr, ptr_t p4 = nullptr) {
     stackDirect(stackPointer, func, p1, p2, p3, p4);
   }
-  void setup(ptr_t func, ptr_t p1 = nullptr, ptr_t p2 = nullptr, ptr_t p3 = nullptr) {
-    stackPointer = stackInit(stackPointer, &Runtime::getMemoryContext(), func, p1, p2, p3);
+  void setup(Runtime::MemoryContext* ctx, ptr_t func, ptr_t p1 = nullptr, ptr_t p2 = nullptr, ptr_t p3 = nullptr) {
+    stackPointer = stackInit(stackPointer, ctx, func, p1, p2, p3);
   }
   void start(ptr_t func, ptr_t p1 = nullptr, ptr_t p2 = nullptr, ptr_t p3 = nullptr);
   void cancel();
+  bool finishing() { return state == Finishing; }
 
   bool block(UnblockInfo* ubi) {
     GENASSERT1(this == Runtime::getCurrThread(), Runtime::getCurrThread());

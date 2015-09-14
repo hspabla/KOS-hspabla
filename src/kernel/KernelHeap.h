@@ -82,7 +82,9 @@ template<size_t Size, int ID=0> class HeapCache {
   static_assert(Size >= sizeof(Free*), "Size < sizeof(Free*)");
 public:
   HeapCache() : freestack(nullptr) {}
-  ~HeapCache() { while (freestack) allocate(); }
+  ~HeapCache() {
+    while (freestack) KernelHeap::release(vaddr(allocate()), Size);
+  }
   ptr_t allocate() {
     if (!freestack) return (Free*)KernelHeap::alloc(Size);
     Free* ptr = freestack;

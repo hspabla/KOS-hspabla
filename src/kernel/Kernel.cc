@@ -23,14 +23,15 @@
 
 #include "main/UserMain.h"
 
-AddressSpace kernelSpace(true); // AddressSpace.h
-volatile mword Clock::tick;     // Clock.h
+KernelAddressSpace kernelAS;  // AddressSpace.h
+AddressSpace defaultAS(0);  // AddressSpace.h
+volatile mword Clock::tick; // Clock.h
 
 #if TESTING_KEYCODE_LOOP
 static void keybLoop() {
   for (;;) {
     Keyboard::KeyCode c = keyboard.read();
-    StdErr.print(' ', FmtHex(c));
+    StdErr.print<false>(' ', FmtHex(c));
   }
 }
 #endif
@@ -50,12 +51,12 @@ void kosMain() {
     KOUT::outl();
   }
 #if TESTING_TIMER_TEST
-  StdErr.print(" timer test, 3 secs...");
+  StdErr.print<false>(" timer test, 3 secs...");
   for (int i = 0; i < 3; i++) {
     Timeout::sleep(Clock::now() + 1000);
-    StdErr.print(' ', i+1);
+    StdErr.print<false>(' ', i+1);
   }
-  StdErr.print(" done.", kendl);
+  StdErr.print<false>(" done.", kendl);
 #endif
 #if TESTING_KEYCODE_LOOP
   Thread* t = Thread::create()->setPriority(topPriority);

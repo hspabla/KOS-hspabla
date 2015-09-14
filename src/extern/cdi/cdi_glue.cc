@@ -158,15 +158,15 @@ cdi_mem_area* cdi_mem_alloc(size_t size, cdi_mem_flags_t flags) {
   if ( flags & CDI_MEM_PHYS_CONTIGUOUS ) {
     paddr align = pow2<paddr>(flags & CDI_MEM_ALIGN_MASK);
     paddr limit = (flags & CDI_MEM_DMA_4G) ? pow2<paddr>(32) : topaddr;
-    vAddr = kernelSpace.allocContig(size, align, limit);
+    vAddr = kernelAS.allocContig(size, align, limit);
     sgSize = size;
   } else if (size >= kernelps) {
     size = align_up(size, kernelps);
-    vAddr = kernelSpace.kmap<kernelpl,true>(0, size);
+    vAddr = kernelAS.mmap<kernelpl,true>(0, size);
     sgSize = kernelps;
   } else {
     size = align_up(size, pagesize<1>());
-    vAddr = kernelSpace.kmap<1,true>(0, size);
+    vAddr = kernelAS.mmap<1,true>(0, size);
     sgSize = pagesize<1>();
   }
   KASSERT0(vAddr != topaddr);
@@ -189,9 +189,9 @@ cdi_mem_area* cdi_mem_map(uintptr_t pAddr, size_t size) {
   // NOTE: no need to reserve physical address (from PCI BAR) in FrameManager?
   vaddr vAddr;
   if (size >= kernelps) {
-    vAddr = kernelSpace.kmap<kernelpl,false>(0, size, paddr(pAddr));
+    vAddr = kernelAS.mmap<kernelpl,false>(0, size, paddr(pAddr));
   } else {
-    vAddr = kernelSpace.kmap<1,false>(0, size, paddr(pAddr));
+    vAddr = kernelAS.mmap<1,false>(0, size, paddr(pAddr));
   }
   KASSERT0(vAddr != topaddr);
   DBG::outl(DBG::CDI, "cdi_mem_map(): ", FmtHex(pAddr), '/', FmtHex(size), " -> ", FmtHex(vAddr));
@@ -210,11 +210,11 @@ void cdi_mem_free(cdi_mem_area* area) {
   KASSERT0(area && area->vaddr);
   DBG::outl(DBG::CDI, "cdi_mem_free(): ", FmtHex(Paging::vtop(vaddr(area->vaddr))), '/', FmtHex(area->size), " -> ", FmtHex(area->vaddr));
   if (area->size >= kernelps) {
-    if (area->osdep.allocated) kernelSpace.kunmap<kernelpl,true>(vaddr(area->vaddr), area->size);
-    else kernelSpace.kunmap<kernelpl,false>(vaddr(area->vaddr), area->size);
+    if (area->osdep.allocated) kernelAS.munmap<kernelpl,true>(vaddr(area->vaddr), area->size);
+    else kernelAS.munmap<kernelpl,false>(vaddr(area->vaddr), area->size);
   } else {
-    if (area->osdep.allocated) kernelSpace.kunmap<1,true>(vaddr(area->vaddr), area->size);
-    else kernelSpace.kunmap<1,false>(vaddr(area->vaddr), area->size);
+    if (area->osdep.allocated) kernelAS.munmap<1,true>(vaddr(area->vaddr), area->size);
+    else kernelAS.munmap<1,false>(vaddr(area->vaddr), area->size);
   }
   kdelete(area->paddr.items, area->paddr.num);
   kdelete(area);

@@ -28,9 +28,9 @@ struct AddressSpaceMarker : public IntrusiveList<AddressSpaceMarker>::Link {
 
 // TODO: store shared & swapped virtual memory regions in separate data
 // structures - checked during page fault (swapped) resp. unmap (shared)
-class AddressSpace : public Paging {
-  AddressSpace(const AddressSpace&) = delete;            // no copy
-  AddressSpace& operator=(const AddressSpace&) = delete; // no assignment
+class BaseAddressSpace : public Paging {
+  BaseAddressSpace(const BaseAddressSpace&) = delete;            // no copy
+  BaseAddressSpace& operator=(const BaseAddressSpace&) = delete; // no assignment
 
   struct MemoryDescriptor : public IntrusiveList<MemoryDescriptor>::Link {
     vaddr  vma;
@@ -43,6 +43,7 @@ class AddressSpace : public Paging {
     MemoryDescriptor& operator=(const MemoryDescriptor&) = default;
   };
 
+protected:
   SpinLock ulock;          // lock protecting page invalidation data
   sword unmapEpoch;        // unmap epoch counter
   IntrusiveList<MemoryDescriptor> memoryList; // list of pages to unmap
@@ -52,27 +53,69 @@ class AddressSpace : public Paging {
   SpinLock vlock;          // lock protecting virtual address range
   vaddr mapBottom, mapStart, mapTop;
 
-  const bool kernel;       // is this the unique kernel address space?
-  paddr pagetable;         // root page table *physical* address
-
   enum MapCode { NoAlloc, Alloc, Guard, Lazy };
 
+  BaseAddressSpace() : unmapEpoch(0), mapBottom(0), mapStart(0), mapTop(0) {}
+  virtual ~BaseAddressSpace() {
+    KASSERT0(memoryList.empty());
+    KASSERT0(markerList.empty());
+  }
+
+  void setup(vaddr bot, vaddr top) {
+    mapBottom = bot;
+    mapStart = mapTop = top;
+  }
+
+  static void verifyPT(paddr pt) {
+    KASSERTN( pt == CPU::readCR3(), FmtHex(pt), ' ', FmtHex(CPU::readCR3()));
+  }
+
+  static constexpr MapCode AllocCode(PageType owner) {
+#if TESTING_NEVER_ALLOC_LAZY
+    return Alloc;
+#else
+    return owner == Kernel ? Alloc : Lazy;
+#endif
+  }
+
   template<size_t N>
-  void mapRegion( paddr pma, vaddr vma, size_t size, uint64_t type, MapCode mc ) {
+  vaddr getVmRange(vaddr addr, size_t& size) {
+    KASSERT1(mapBottom < mapTop, "no AS memory break set yet");
+    ScopedLock<> sl(vlock);
+    vaddr end = (addr >= mapBottom) ? align_up(addr + size, pagesize<N>()) : align_down(mapStart, pagesize<N>());
+    vaddr start = align_down(end - size, pagesize<N>());
+    if (start < mapBottom) goto allocFailed;
+    if (start < mapStart) mapStart = start;
+    size = end - start;
+    DBG::outl(DBG::VM, "AS(", FmtHex(this), ")/get: ", FmtHex(start), '-', FmtHex(end));
+    return start;
+allocFailed:
+    KABORT0();
+  }
+
+  void putVmRange(vaddr addr, size_t size) {
+    vaddr end = addr + size;
+    ScopedLock<> sl(vlock);
+    if (addr <= mapStart && end >= mapStart) {
+      while ((size = Paging::test(end, Available)) && end + size <= mapTop) end += size;
+      DBG::outl(DBG::VM, "AS(", FmtHex(this), ")/put: ", FmtHex(mapStart), '-', FmtHex(end));
+      // TODO: clear page tables in range [mapStart...end]
+      mapStart = end;
+    }
+  }
+
+  template<size_t N, MapCode mc, PageType owner>
+  void mapRegion( paddr pma, vaddr vma, size_t size, PageType type ) {
     static_assert( N > 0 && N < pagelevels, "page level template violation" );
     KASSERT1( NoAlloc <= mc && mc <= Lazy, mc );
     KASSERT1( aligned(vma,  pagesize<N>()), vma );
     KASSERT1( aligned(size, pagesize<N>()), size );
-    if (mc == Lazy && kernel) mc = Alloc;
-#if TESTING_NEVER_ALLOC_LAZY
-    if (mc == Lazy) mc = Alloc;
-#endif
     for (vaddr end = vma + size; vma < end; vma += pagesize<N>()) {
       if (mc == Alloc) pma = CurrFM().allocFrame<N>();
-      DBG::outl(DBG::VM, "AS(", FmtHex(pagetable), ")/map<", N, ',', mc, ">: ", FmtHex(vma), " -> ", FmtHex(pma), " flags:", Paging::PageEntryFmt(type));
+      DBG::outl(DBG::VM, "AS(", FmtHex(this), ")/map<", N, ',', mc, ">: ", FmtHex(vma), " -> ", FmtHex(pma), " flags:", Paging::PageEntryFmt(type));
       switch (mc) {
         case NoAlloc:
-        case Alloc:   Paging::mapPage<N>(vma, pma, type | owner()); break;
+        case Alloc:   Paging::mapPage<N>(vma, pma, type | owner); break;
         case Guard:   Paging::mapToGuard<N>(vma); break;
         case Lazy:    Paging::mapToLazy<N>(vma); break;
         default:      KABORT0();
@@ -81,21 +124,41 @@ class AddressSpace : public Paging {
     }
   }
 
-  template<size_t N>
-  void unmapRegion( vaddr vma, size_t size, MapCode mc ) {
+  template<size_t N, MapCode mc>
+  void unmapRegion( vaddr vma, size_t size ) {
     static_assert( N > 0 && N < pagelevels, "page level template violation" );
     KASSERT1( NoAlloc <= mc && mc <= Alloc, mc );
     KASSERT1( aligned(vma, pagesize<N>()), vma );
     KASSERT1( aligned(size, pagesize<N>()), size );
     for (vaddr end = vma + size; vma < end; vma += pagesize<N>()) {
-      paddr pma = Paging::unmap<N>(vma);
+      paddr pma = Paging::unmap<N,false>(vma); // TLB invalidated separately
       bool alloc = (mc == Alloc && pma != guardPage && pma != lazyPage);
-      DBG::outl(DBG::VM, "AS(", FmtHex(pagetable), ")/post: ", FmtHex(vma), '/', FmtHex(pagesize<N>()), " -> ", FmtHex(pma), " epoch:", unmapEpoch);
+      DBG::outl(DBG::VM, "AS(", FmtHex(this), ")/post: ", FmtHex(vma), '/', FmtHex(pagesize<N>()), " -> ", FmtHex(pma), " epoch:", unmapEpoch);
       ScopedLock<> sl(ulock);
       MemoryDescriptor* md = new (mdCache.allocate()) MemoryDescriptor(vma, pma, pagesize<N>(), alloc);
       memoryList.push_back(*md);
       unmapEpoch += 1;
     }
+  }
+
+  template<size_t N, bool alloc, PageType owner>
+  vaddr bmap(vaddr addr, size_t size, paddr pma) {
+    addr = getVmRange<N>(addr, size);
+    const MapCode mc = alloc ? AllocCode(owner) : NoAlloc;
+    mapRegion<N,mc,owner>(pma, addr, size, Data);
+    return addr;
+  }
+
+  template<PageType owner>
+  vaddr ballocStack(size_t ss) {
+    KASSERT1(ss >= minimumStack, ss);
+    size_t size = ss + stackGuardPage;
+    vaddr vma = getVmRange<stackpl>(0, size);
+    KASSERTN(size == ss + stackGuardPage, ss, ' ', size);
+    mapRegion<stackpl,Guard,owner>(0, vma, stackGuardPage, Data);
+    vma += stackGuardPage;
+    mapRegion<stackpl,AllocCode(owner),owner>(0, vma, ss, Data);
+    return vma;
   }
 
   void enter(AddressSpaceMarker& marker) {
@@ -116,11 +179,11 @@ class AddressSpace : public Paging {
       MemoryDescriptor* md = memoryList.back();
       for (sword e = unmapEpoch; e - marker.enterEpoch > 0; e -= 1) {
         KASSERT0(md != memoryList.fence());
-        DBG::outl(DBG::VM, "AS(", FmtHex(pagetable), ")/kinv: ", FmtHex(md->vma), '/', FmtHex(md->size), " -> ", FmtHex(md->pma), " epoch:", e-1);
+        DBG::outl(DBG::VM, "AS(", FmtHex(this), ")/kinv: ", FmtHex(md->vma), '/', FmtHex(md->size), " -> ", FmtHex(md->pma), " epoch:", e-1);
         CPU::InvTLB(md->vma);
         md = IntrusiveList<MemoryDescriptor>::prev(*md);
       }
-    } else KASSERT0(!kernel);
+    }
 
     // All unmap entries between 'oldest' and 'second-oldest' CPU are
     // flushed from all TLBs and can be removed from list.
@@ -129,7 +192,7 @@ class AddressSpace : public Paging {
       for (sword e = marker.enterEpoch; end - e > 0; e += 1) {
         KASSERT0(!memoryList.empty());
         MemoryDescriptor* md = memoryList.front();
-        DBG::outl(DBG::VM, "AS(", FmtHex(pagetable), ")/inv: ", FmtHex(md->vma), '/', FmtHex(md->size), " -> ", FmtHex(md->pma), (md->alloc ? "a" : ""), " epoch:", e);
+        DBG::outl(DBG::VM, "AS(", FmtHex(this), ")/inv: ", FmtHex(md->vma), '/', FmtHex(md->size), " -> ", FmtHex(md->pma), (md->alloc ? "a" : ""), " epoch:", e);
         putVmRange(md->vma, md->size);
         if (md->alloc) CurrFM().release(md->pma, md->size);
         IntrusiveList<MemoryDescriptor>::remove(*md);
@@ -138,183 +201,179 @@ class AddressSpace : public Paging {
     }
   }
 
-  template<size_t N>
-  vaddr getVmRange(vaddr addr, size_t& size) {
-    KASSERT1(mapBottom < mapTop, "no AS memory break set yet");
-    ScopedLock<> sl(vlock);
-    vaddr end = (addr >= mapBottom) ? align_up(addr + size, pagesize<N>()) : align_down(mapStart, pagesize<N>());
-    vaddr start = align_down(end - size, pagesize<N>());
-    if (start < mapBottom) goto allocFailed;
-    if (start < mapStart) mapStart = start;
-    size = end - start;
-    DBG::outl(DBG::VM, "AS(", FmtHex(pagetable), ")/get: ", FmtHex(start), '-', FmtHex(end));
-    return start;
-allocFailed:
-    KABORT0();
+  template<bool kernel>
+  void runInvalidation() {
+    ScopedLock<> sl(ulock);
+    AddressSpaceMarker* marker = kernel ? LocalProcessor::getKernASM() : LocalProcessor::getUserASM();
+    leave<true>(*marker);
+    enter(*marker);
   }
 
-  void putVmRange(vaddr addr, size_t size) {
-    vaddr end = addr + size;
-    ScopedLock<> sl(vlock);
-    if (addr <= mapStart && end >= mapStart) {
-      while ((size = Paging::test(end, Available)) && end + size <= mapTop) end += size;
-      DBG::outl(DBG::VM, "AS(", FmtHex(pagetable), ")/put: ", FmtHex(mapStart), '-', FmtHex(end));
-      // TODO: clear page tables in range [mapStart...end]
-      mapStart = end;
+  template<bool kernel>
+  void initInvalidation() {
+    ScopedLock<> sl(ulock);
+    AddressSpaceMarker* marker = kernel ? LocalProcessor::getKernASM() : LocalProcessor::getUserASM();
+    if (markerList.empty()) {
+      enter(*marker);
+      leave<true>(*marker);
     }
+    enter(*marker);
   }
-
-  Paging::PageType owner() const { return kernel ? Kernel : User; }
 
 public:
-  inline AddressSpace(const bool k = false);
-
-  ~AddressSpace() {
-    KASSERT0(!kernel); // kernelSpace is never destroyed
-    KASSERT0(pagetable != topaddr);
-    DBG::outl(DBG::VM, "AS(", FmtHex(pagetable), ")/destruct:", FmtHex(pagetable));
-    KASSERT1(pagetable != CPU::readCR3(), FmtHex(CPU::readCR3()));
-    KASSERT0(memoryList.empty());
-    KASSERT0(markerList.empty());
-    CurrFM().release(pagetable, pagetableps);
-  }
-
-  bool user() const { return !kernel; }
-
-  void initKernel(vaddr bot, vaddr top, paddr pt) {
-    KASSERT0(kernel);
-    pagetable = pt;
-    mapBottom = bot;
-    mapStart = mapTop = top;
-  }
-
-  void initUser(vaddr bssEnd) {
-    KASSERT0(!kernel);
-    mapBottom = bssEnd;
-    mapStart = mapTop = usertop;
-  }
-
-  void initProcessor(AddressSpaceMarker& marker) {
-    KASSERT0(kernel);
-    ScopedLock<> sl(ulock);
-    if (markerList.empty()) {
-      enter(marker);
-      leave<true>(marker);
-    }
-    enter(marker);
-  }
-
-  inline void runInvalidation();
-
-  AddressSpace& switchTo(bool destroyPrev = false) {
-    KASSERT0(LocalProcessor::checkLock());
-    AddressSpace* prevAS = LocalProcessor::getCurrAS();
-    KASSERT0(prevAS);
-    KASSERTN(prevAS->pagetable == CPU::readCR3(), FmtHex(prevAS->pagetable), ' ', FmtHex(CPU::readCR3()));
-    KASSERT0(pagetable != topaddr);
-    if (prevAS != this) {
-      DBG::outl(DBG::Scheduler, "AS(", FmtHex(prevAS->pagetable), ")/switchTo: ", FmtHex(pagetable));
-      AddressSpaceMarker* marker = LocalProcessor::getUserASM();
-      if (prevAS->user()) {
-        if (destroyPrev) {
-          DBG::outl(DBG::VM, "AS(", FmtHex(pagetable), ")/destroy:", *prevAS);
-          Paging::clear(align_down(userbot, pagesize<pagelevels>()), align_up(usertop, pagesize<pagelevels>()), CurrFM());
-        }
-        ScopedLock<> sl(prevAS->ulock);
-        prevAS->leave<false>(*marker);
-      } else {
-        KASSERT0(!destroyPrev);
-        prevAS->runInvalidation(); // prevAS == &kernelSpace
-      }
-      Paging::installPagetable(pagetable);
-      LocalProcessor::setCurrAS(this);
-      if (user()) {
-        ScopedLock<> sl(ulock);
-        enter(*marker);
-      }
-    } else {
-      KASSERT0(!destroyPrev);
-      runInvalidation();
-    }
-    return *prevAS;
+  void setup(vaddr bot, vaddr top, _friend<Machine>) {
+    setup(bot, top);
   }
 
   template<size_t N, bool alloc=true>
-  vaddr kmap(vaddr addr, size_t size, paddr pma = topaddr) {
-    addr = getVmRange<N>(addr, size);
-    MapCode mc = alloc ? (kernel ? Alloc : Lazy) : NoAlloc;
-    mapRegion<N>(pma, addr, size, Data, mc);
-    return addr;
-  }
-
-  template<size_t N, bool alloc=true>
-  void kunmap(vaddr addr, size_t size) {
+  void munmap(vaddr addr, size_t size) {
     KASSERT1(aligned(addr, pagesize<N>()), addr);
     size = align_up(size, pagesize<N>());
-    unmapRegion<N>(addr, size, alloc ? Alloc : NoAlloc);
-  }
-
-  bool tablefault(vaddr vma, uint64_t pff) {
-    return Paging::mapTable<pagetablepl>(vma, pff, CurrFM());
-  }
-
-  bool pagefault(vaddr vma, uint64_t pff) {
-    return Paging::mapFromLazy(vma, Data | owner(), pff, CurrFM());
-  }
-
-  vaddr allocStack(size_t ss) {
-    KASSERT1(ss >= minimumStack, ss);
-    size_t size = ss + stackGuardPage;
-    vaddr vma = getVmRange<stackpl>(0, size);
-    KASSERTN(size == ss + stackGuardPage, ss, ' ', size);
-    mapRegion<stackpl>(0, vma, stackGuardPage, Data, Guard);
-    vma += stackGuardPage;
-    MapCode mc = kernel ? Alloc : Lazy;
-    mapRegion<stackpl>(0, vma, ss, Data, mc);
-    return vma;
+    unmapRegion<N,alloc ? Alloc : NoAlloc>(addr, size);
   }
 
   void releaseStack(vaddr vma, size_t ss) {
-    unmapRegion<stackpl>(vma - stackGuardPage, ss + stackGuardPage, Alloc);
+    unmapRegion<stackpl,Alloc>(vma - stackGuardPage, ss + stackGuardPage);
+  }
+
+  static bool tablefault(vaddr vma, uint64_t pff) {
+    return Paging::mapTable<pagetablepl>(vma, pff, CurrFM());
+  }
+
+  virtual void preThreadSwitch() {}
+  virtual void postThreadDestroy() {}
+  virtual void postThreadResume() {}
+};
+
+class KernelAddressSpace : public BaseAddressSpace {
+public:
+  template<size_t N, bool alloc=true>
+  vaddr mmap(vaddr addr, size_t size, paddr pma = topaddr) {
+    return BaseAddressSpace::bmap<N,alloc,Kernel>(addr, size, pma);
+  }
+
+  vaddr allocStack(size_t ss) {
+    return BaseAddressSpace::ballocStack<Kernel>(ss);
+  }
+
+  // allocate and map contiguous physical memory: device buffers -> set MMapIO?
+  vaddr allocContig( size_t size, paddr align, paddr limit) {
+    paddr pma = CurrFM().allocRegion(size, align, limit);
+    if (size < kernelps) return mmap<1,false>(0, size, pma);
+    else return mmap<kernelpl,false>(0, size, pma);
+  }
+
+  void initInvalidation() { BaseAddressSpace::initInvalidation<true>(); }
+  void  runInvalidation() { BaseAddressSpace::runInvalidation<true>(); }
+};
+
+extern KernelAddressSpace kernelAS;
+
+class AddressSpace : public BaseAddressSpace {
+  paddr pagetable;         // root page table *physical* address
+
+public:
+  AddressSpace(int) : pagetable(topaddr) {}
+  AddressSpace() {
+    pagetable = CurrFM().allocFrame<pagetablepl>();
+    Paging::clone(pagetable);
+    DBG::outl(DBG::VM, "AS(", FmtHex(this), ")/cloned: ", FmtHex(pagetable));
+    BaseAddressSpace::setup(usertop - kernelps, usertop);
+  }
+
+  void init(paddr p, _friend<Machine>) {
+    KASSERT1(pagetable == topaddr, FmtHex(pagetable));
+    pagetable = p;
+    setup(usertop);
+  }
+
+  void setup(vaddr bssEnd) {
+    BaseAddressSpace::setup(bssEnd, usertop);
+  }
+
+  ~AddressSpace() {
+    KASSERT0(pagetable != topaddr);
+    DBG::outl(DBG::VM, "AS(", FmtHex(this), ")/destroy:", FmtHex(pagetable));
+    KASSERT1(pagetable != CPU::readCR3(), FmtHex(CPU::readCR3()));
+    CurrFM().release(pagetable, pagetableps);
+  }
+
+  void clean() {
+    DBG::outl(DBG::VM, "AS(", FmtHex(this), ")/clean:", *this);
+    verifyPT(pagetable);
+    Paging::clear(align_down(userbot, pagesize<pagelevels>()), align_up(usertop, pagesize<pagelevels>()), CurrFM());
+  }
+
+  template<size_t N, bool alloc=true>
+  vaddr mmap(vaddr addr, size_t size, paddr pma = topaddr) {
+    verifyPT(pagetable);
+    return BaseAddressSpace::bmap<N,alloc,User>(addr, size, pma);
+  }
+
+  template<size_t N, bool alloc=true>
+  void munmap(vaddr addr, size_t size) {
+    verifyPT(pagetable);
+    BaseAddressSpace::munmap<N,alloc>(addr, size);
+  }
+
+  vaddr allocStack(size_t ss) {
+    verifyPT(pagetable);
+    return BaseAddressSpace::ballocStack<User>(ss);
+  }
+
+  void releaseStack(vaddr vma, size_t ss) {
+    verifyPT(pagetable);
+    BaseAddressSpace::releaseStack(vma, ss);
+  }
+
+  bool pagefault(vaddr vma, uint64_t pff) {
+    verifyPT(pagetable);
+    return Paging::mapFromLazy(vma, Data | User, pff, CurrFM());
   }
 
   // allocate memory and map to specific virtual address: ELF loading
   template<size_t N, bool check=true>
   void allocDirect( vaddr vma, size_t size, PageType t ) {
     KASSERT1(!check || vma < mapBottom || vma > mapTop, vma);
-    mapRegion<N>(0, vma, size, t, Alloc);
+    mapRegion<N,Alloc,User>(0, vma, size, t);
   }
 
   // map memory to specific virtual address: ELF loading
   template<size_t N, bool check=true>
   void mapDirect( paddr pma, vaddr vma, size_t size, PageType t ) {
     KASSERT1(!check || vma < mapBottom || vma > mapTop, vma);
-    mapRegion<N>(pma, vma, size, t, NoAlloc);
+    mapRegion<N,NoAlloc,User>(pma, vma, size, t);
   }
 
-  // allocate and map contiguous physical memory: device buffers -> set MMapIO?
-  vaddr allocContig( size_t size, paddr align, paddr limit) {
-    paddr pma = CurrFM().allocRegion(size, align, limit);
-    if (size < kernelps) return kmap<1,false>(0, size, pma);
-    else return kmap<kernelpl,false>(0, size, pma);
+  AddressSpace* switchTo() {
+    KASSERT0(LocalProcessor::checkLock());
+    KASSERT0(pagetable != topaddr);
+    AddressSpace* prevAS = LocalProcessor::getCurrAS();
+    KASSERT0(prevAS);
+    verifyPT(prevAS->pagetable);
+    AddressSpaceMarker* marker = LocalProcessor::getUserASM();
+    if (prevAS != this) {
+      DBG::outl(DBG::AddressSpace, "AS(", FmtHex(prevAS), ")/switchTo: ", FmtHex(this));
+      prevAS->ulock.acquire();
+      prevAS->leave<false>(*marker);
+      prevAS->ulock.release();
+      Paging::installPagetable(pagetable);
+      LocalProcessor::setCurrAS(this);
+      ulock.acquire();
+      enter(*marker);
+      ulock.release();
+    } else {
+      ScopedLock<> sl(ulock);
+      leave<true>(*marker);
+      enter(*marker);
+    }
+    return prevAS;
   }
+
+  void initInvalidation() { BaseAddressSpace::initInvalidation<false>(); }
+  void  runInvalidation() { BaseAddressSpace::runInvalidation<false>(); }
 
   void print(ostream& os) const;
-
-  class Temp {
-    AddressSpace* orig;
-  public:
-    Temp(AddressSpace& temp) {
-      LocalProcessor::lock(true);
-      orig = &temp.switchTo();
-      LocalProcessor::unlock(true);
-    }
-    ~Temp() {
-      LocalProcessor::lock(true);
-      orig->switchTo();
-      LocalProcessor::unlock(true);
-    }
-  };
 };
 
 inline ostream& operator<<(ostream& os, const AddressSpace& as) {
@@ -322,31 +381,12 @@ inline ostream& operator<<(ostream& os, const AddressSpace& as) {
   return os;
 }
 
-extern AddressSpace kernelSpace;
-
-inline AddressSpace::AddressSpace(const bool k) : unmapEpoch(0),
-  mapBottom(0), mapStart(0), mapTop(0), kernel(k) {
-  if (kernel) {
-    pagetable = topaddr;
-  } else { // shallow copy; if clone from user AS -> make deep copy!
-    pagetable = CurrFM().allocFrame<pagetablepl>();
-    Paging::clone(pagetable);
-    DBG::outl(DBG::VM, "AS(", FmtHex(kernelSpace.pagetable), ")/cloned: ", FmtHex(pagetable));
-  }
-}
-
-inline void AddressSpace::runInvalidation() {
-  if (!kernel) kernelSpace.runInvalidation();
-  ScopedLock<> sl(ulock);
-  AddressSpaceMarker* marker = kernel ? LocalProcessor::getKernASM() : LocalProcessor::getUserASM();
-  leave<true>(*marker);
-  enter(*marker);
-}
-
 static inline AddressSpace& CurrAS() {
   AddressSpace* as = LocalProcessor::getCurrAS();
   KASSERT0(as);
   return *as;
 }
+
+extern AddressSpace defaultAS;
 
 #endif /* _AddressSpace_h_ */

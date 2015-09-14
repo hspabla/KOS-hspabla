@@ -37,7 +37,6 @@ class FrameManager {
   static const size_t largeSize = kernelps;
   static const size_t smallSize = pagesize<1>();
 
-  AddressSpace* zeroAS;
   struct ZeroDescriptor : public IntrusiveList<ZeroDescriptor>::Link {
     paddr addr;
     size_t size;
@@ -92,7 +91,7 @@ class FrameManager {
   }
 
 public:
-  FrameManager() : zeroAS(nullptr) {} // do not initialize baseAddress, topAddress!
+  FrameManager() {} // do not initialize baseAddress, topAddress!
 
   size_t preinit( paddr bot, paddr top ) {
     baseAddress = bot;
@@ -119,22 +118,21 @@ public:
     }
     // check for impending memory shortage -> synchronous zeroing!
     // TODO: not bullet-proof!
-    while (largeFrames.empty() && !zeroQueue.empty()) zeroInternal();
+    while (largeFrames.empty() && !zeroQueue.empty()) {
+      zeroInternal();
+      lock.acquire();
+    }
     return result;
   }
 
-  template<bool zero=true>
   void release( paddr addr, size_t size ) {
-    ZeroDescriptor* zd;
     // allocate ZD object before acquiring lock
-    if (zero) zd = new (zdCache.allocate()) ZeroDescriptor(addr, size);
+    ZeroDescriptor* zd = new (zdCache.allocate()) ZeroDescriptor(addr, size);
     ScopedLock<> sl(lock);
-    if (zero) zeroQueue.push_back(*zd);
-    else releaseInternal(addr, size);
+    zeroQueue.push_back(*zd);
   }
 
   paddr allocRegion( size_t& size, paddr align, paddr lim );
-  void initZero(_friend<Machine>);
   void zeroInternal();
   bool zeroMemory();
 };

@@ -14,8 +14,8 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ******************************************************************************/
-#include "kernel/AddressSpace.h"
 #include "kernel/FrameManager.h"
+#include "machine/Paging.h"
 
 ostream& operator<<(ostream& os, const FrameManager& fm) {
   ScopedLock<> sl(const_cast<FrameManager&>(fm).lock);
@@ -85,14 +85,6 @@ paddr FrameManager::allocRegion(size_t& size, paddr align, paddr lim) {
   KABORTN(FmtHex(size), ' ', FmtHex(align), ' ', FmtHex(lim));
 }
 
-void FrameManager::initZero(_friend<Machine>) {
-  lock.acquire();
-  while (largeFrames.empty() && !zeroQueue.empty()) zeroInternal();
-  lock.release();
-  zeroAS = new AddressSpace;
-  zeroAS->initUser(userbot);
-}
-
 void FrameManager::zeroInternal() {
   // get memory region from queue
   ZeroDescriptor* zd = zeroQueue.front();
@@ -102,24 +94,32 @@ void FrameManager::zeroInternal() {
   paddr addr = zd->addr;
   size_t size = zd->size;
   zdCache.deallocate(zd);
-  // map and zero memory without holding FM lock
-  DBG::outl(DBG::Frame, "FM/zero: ", FmtHex(addr), '/', FmtHex(size));
-  paddr astart = align_down(addr, largeSize);
-  size_t offset = addr - astart;
-  size_t asize = align_up(size + offset, largeSize);
-  // all mappings use 2M pages
-  vaddr v = CurrAS().kmap<kernelpl,false>(0, asize, astart);
-  memset((ptr_t)(v + offset), 0,  size);
-  CurrAS().kunmap<kernelpl,false>(v, asize);
-  // re-acquire FM lock and make frames available for future allocation
-  lock.acquire();
-  releaseInternal(addr, size);
+
+  // map (using 2M pages) and zero memory without holding FM lock
+  while (size > 0) {
+    paddr astart = align_down(addr, largeSize);
+    size_t offset = addr - astart;
+    size_t zsize = min(size, largeSize - offset);
+    vaddr v = LocalProcessor::getZeroAddr();
+    Paging::mapPage<kernelpl>(v, astart, Paging::Data, _friend<FrameManager>());
+    DBG::outl(DBG::Frame, "FM/zero: ", FmtHex(astart), '/', FmtHex(addr), '/', FmtHex(zsize));
+    memset((ptr_t)(v + offset), 0, zsize);
+    Paging::unmap<kernelpl>(v, _friend<FrameManager>());
+    // re-acquire FM lock and make frames available for future allocation
+    lock.acquire();
+    releaseInternal(addr, zsize);
+    lock.release();
+    addr += zsize;
+    size -= zsize;
+  }
 }
 
 bool FrameManager::zeroMemory() {
-  AddressSpace::Temp ast(*zeroAS);
-  ScopedLock<> sl(lock);
-  if (zeroQueue.empty()) return false;
-  zeroInternal();
-  return true;
+  lock.acquire();
+  if (!zeroQueue.empty()) {
+    zeroInternal();
+    return true;
+  }
+  lock.release();
+  return false;
 }

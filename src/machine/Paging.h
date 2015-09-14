@@ -67,7 +67,6 @@ public:
     static const BitString<uint64_t, 2, 1> US;   // user access not allowed
     static const BitString<uint64_t, 3, 1> RSVD; // reserved flag in paging structure
     static const BitString<uint64_t, 4, 1> ID;   // instruction fetch
-    static constexpr uint64_t testmask() { return P() | WR() | US(); }
     PageFaultFlags( uint64_t t ) : t(t) {}
   };
   friend ostream& operator<<(ostream&, const PageFaultFlags&);
@@ -102,7 +101,7 @@ public:
     Available = 0x01,
     Guard     = 0x02,
     Lazy      = 0x04,
-    Mapped    = 0x04,
+    Mapped    = 0x08,
   };
 
 private:
@@ -143,9 +142,17 @@ private:
     return (N < pagelevels) && (N == 1 || PS.get(pe));
   }
 
-	template<unsigned int N> static bool hasPAT(const PageEntry& pe) {
+	template<unsigned int N> static constexpr bool hasPAT(const PageEntry& pe) {
     static_assert( N > 0 && N < pagelevels, "page level template violation" );
 		return N > 1 ? PAT.get(pe) : PS.get(pe);
+  }
+
+  template<unsigned int N> static bool checkMapping(vaddr vma, uint64_t pff) {
+    static const uint64_t tm = RW() | US();
+    PageEntry pe = *getPageEntry<N>(vma);
+    bool result = (pe & P()) && (pe & pff) == (tm & pff);
+    KASSERTN(result, N, ' ', FmtHex(vma), ' ', FmtHex(pe), ' ', FmtHex(pff));
+    return result;
   }
 
   template <unsigned int N, bool output = true>
@@ -156,65 +163,6 @@ private:
     bool success = __atomic_compare_exchange_n(curr, &expected, pe, 0, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED);
     if (output) DBG::outl(DBG::Paging, "Paging::map<", N, ">: ", FmtHex(vma), '/', FmtHex(pagesize<N>()), " ->", PageEntryFmt(*curr), (success ? " new" : " old"));
     return success;
-  }
-
-  template <unsigned int N>
-  static bool mapFromLazyInternal( vaddr vma, uint64_t type, uint64_t pff, FrameManager& fm ) {
-    PageEntry* pe = getPageEntry<N>(vma);
-    if (P.get(*pe) && !isPage<N>(*pe)) return mapFromLazyInternal<N-1>(vma, type, pff, fm);
-    paddr pma = fm.allocFrame<N>();
-    vma = align_down(vma, pagesize<N>());
-    if (!mapInternal<N>(vma, pma | type | xPS<N>(), lazyPage)) {
-      fm.release(pma, pagesize<N>());
-    }
-    return (*getPageEntry<N>(vma) & pff) == (pff & PageFaultFlags::testmask());
-  }
-
-  template <unsigned int N>
-  static size_t testInternal( vaddr vma, uint64_t status ) {
-    static_assert( N > 0 && N <= pagelevels, "page level template violation" );
-    PageEntry* pe = getPageEntry<N>(vma);
-    PageStatus s;
-    if (P.get(*pe)) {
-      if (isPage<N>(*pe)) s = Mapped;
-      else return testInternal<N-1>(vma, status);
-    } else switch(*pe) {
-      case 0:         s = Available; break;
-      case guardPage: s = Guard; break;
-      case lazyPage:  s = Lazy; break;
-      default:        KABORT1(*pe); break;
-    }
-    return (s & status) ? pagesize<N>() : 0;
-  }
-
-  template <unsigned int N>
-  static void clearInternal( vaddr start, vaddr end, FrameManager& fm ) {
-    static_assert( N >= 1 && N <= pagelevels, "page level template violation" );
-    for (vaddr vma = start; vma < end; vma += pagesize<N>()) {
-      PageEntry* pe = getPageEntry<N>(vma);
-      if (P.get(*pe)) {
-        paddr pma = *pe & ADDR();
-        if (isPage<N>(*pe)) {
-          DBG::outl(DBG::Paging, "Paging::clearP<", N, ">: ", FmtHex(vma), '/', FmtHex(pagesize<N>()), " -> ", PageEntryFmt(*pe));
-          KASSERT1(N < pagelevels, N);
-          fm.release(pma, pagesize<N>());
-        } else {
-          clearInternal<N-1>(vma, vma + pagesize<N>(), fm);
-          DBG::outl(DBG::Paging, "Paging::clearT<", N-1, ">: ", FmtHex(vma), '/', FmtHex(pagesize<N>()), " -> ", PageEntryFmt(*pe));
-          fm.release(pma, pagetableps);
-        }
-      }
-      *pe = 0;
-    }
-  }
-
-  template<unsigned int N>
-  static paddr vtopInternal( vaddr vma ) {
-    static_assert( N > 0 && N <= pagelevels, "page level template violation" );
-    PageEntry* pe = getPageEntry<N>(vma);
-    KASSERT1(P.get(*pe), FmtHex(vma));
-    if (!isPage<N>(*pe)) return vtopInternal<N-1>(vma);
-    return (*pe & ADDR()) + pageoffset<N>(vma);
   }
 
 protected:
@@ -238,42 +186,80 @@ protected:
   }
 
   template <unsigned int N>
-  static inline bool mapTable( vaddr vma, uint64_t pff, FrameManager& fm );
+  static inline bool mapTable( vaddr vma, uint64_t pff, FrameManager& fm ) {
+    KASSERT1( pff == 0 || pff == PageFaultFlags::WR(), FmtHex(pff) );
+    paddr pma = fm.allocFrame<pagetablepl>();
+    vma = align_down(vma, pagetableps);
+    bool success = mapInternal<N,false>(vma, pma | PageTable | User, 0);
+    if (!success) fm.release(pma, pagetableps);
+    DBG::outl(DBG::Paging, "Paging::mapTable<", N, ">: [", PageVector<N>(vma), "] -> ", success ? FmtHex(pma) : FmtHex(topaddr));
+    return checkMapping<N>(vma, pff);
+  }
 
   template <unsigned int N = pagelevels-1>
   static bool mapFromLazy( vaddr vma, uint64_t type, uint64_t pff, FrameManager& fm ) {
-    CPU::LoadFence();
-    return mapFromLazyInternal<N>(vma, type, pff, fm);
+    PageEntry* pe = getPageEntry<N>(vma);
+    if (P.get(*pe) && !isPage<N>(*pe)) return mapFromLazy<N-1>(vma, type, pff, fm);
+    paddr pma = fm.allocFrame<N>();
+    vma = align_down(vma, pagesize<N>());
+    bool success = mapInternal<N>(vma, pma | type | xPS<N>(), lazyPage);
+    if (!success) fm.release(pma, pagesize<N>());
+    return checkMapping<N>(vma, pff);
   }
 
   template <unsigned int N = pagelevels>
   static size_t test( vaddr vma, uint64_t status ) {
-    CPU::LoadFence();
-    return testInternal<N>(vma, status);
+    static_assert( N > 0 && N <= pagelevels, "page level template violation" );
+    PageEntry* pe = getPageEntry<N>(vma);
+    PageStatus s;
+    if (P.get(*pe)) {
+      if (isPage<N>(*pe)) s = Mapped;
+      else return test<N-1>(vma, status);
+    } else switch(*pe) {
+      case 0:         s = Available; break;
+      case guardPage: s = Guard; break;
+      case lazyPage:  s = Lazy; break;
+      default:        KABORT1(*pe); break;
+    }
+    return (s & status) ? pagesize<N>() : 0;
   }
+
 
   static size_t testfree( vaddr vma ) { return test(vma, Available); }
   static size_t testused( vaddr vma ) { return test(vma, Guard|Lazy|Mapped); }
 
-  template <unsigned int N>
+  template <unsigned int N, bool invTLB=true>
   static paddr unmap( vaddr vma ) {
     static_assert( N >= 1 && N <= pagelevels, "page level template violation" );
     KASSERT1(aligned(vma, pagesize<N>()), FmtHex(vma));
     PageEntry* pe = getPageEntry<N>(vma);
-    CPU::LoadFence();
     KASSERT1(isPage<N>(*pe), FmtHex(vma));
     paddr pma = *pe & ADDR();
     *pe = 0;
+    if (invTLB) CPU::InvTLB(vma);
     DBG::outl(DBG::Paging, "Paging::unmap<", N, ">: ", FmtHex(vma), '/', FmtHex(pagesize<N>()), " -> ", FmtHex(pma));
-    CPU::StoreFence();
     return pma;
   }
 
   template <unsigned int N = pagelevels>
   static void clear( vaddr start, vaddr end, FrameManager& fm ) {
-    CPU::LoadFence();
-    clearInternal<N>(start, end, fm);
-    CPU::StoreFence();
+    static_assert( N >= 1 && N <= pagelevels, "page level template violation" );
+    for (vaddr vma = start; vma < end; vma += pagesize<N>()) {
+      PageEntry* pe = getPageEntry<N>(vma);
+      if (P.get(*pe)) {
+        paddr pma = *pe & ADDR();
+        if (isPage<N>(*pe)) {
+          DBG::outl(DBG::Paging, "Paging::clearP<", N, ">: ", FmtHex(vma), '/', FmtHex(pagesize<N>()), " -> ", PageEntryFmt(*pe));
+          KASSERT1(N < pagelevels, N);
+          fm.release(pma, pagesize<N>());
+        } else {
+          clear<N-1>(vma, vma + pagesize<N>(), fm);
+          DBG::outl(DBG::Paging, "Paging::clearT<", N-1, ">: ", FmtHex(vma), '/', FmtHex(pagesize<N>()), " -> ", PageEntryFmt(*pe));
+          fm.release(pma, pagetableps);
+        }
+      }
+      *pe = 0;
+    }
   }
 
   static void installPagetable(paddr pt) {
@@ -289,22 +275,37 @@ protected:
 public:
   static inline paddr bootstrap(vaddr kernelBase, vaddr kernelData, vaddr kernelEnd, RegionSet<Region<paddr>>& mem, _friend<Machine>);
   static inline vaddr bootstrap2(RegionSet<Region<paddr>>& mem, size_t maxHeap, size_t startHeap, _friend<Machine>);
+  static inline void  bootstrap3(mword coreCount, _friend<Machine>);
 
   template <unsigned int N>
   static bool mapPage( vaddr vma, paddr pma, uint64_t type, _friend<Machine> ) {
     return mapPage<N>(vma, pma, type);
   }
 
-  template <unsigned int N>
+  template <unsigned int N, bool invTLB=true>
   static paddr unmap( vaddr vma, _friend<Machine> ) {
-    return unmap<N>(vma);
+    return unmap<N,invTLB>(vma);
+  }
+
+  template <unsigned int N>
+  static bool mapPage( vaddr vma, paddr pma, uint64_t type, _friend<FrameManager> ) {
+    return mapPage<N>(vma, pma, type);
+  }
+
+  template <unsigned int N, bool invTLB=true>
+  static paddr unmap( vaddr vma, _friend<FrameManager> ) {
+    return unmap<N,invTLB>(vma);
   }
 
   template<unsigned int N = pagelevels>
   static paddr vtop( vaddr vma ) {
-    CPU::LoadFence();
-    return vtopInternal<N>(vma);
+    static_assert( N > 0 && N <= pagelevels, "page level template violation" );
+    PageEntry* pe = getPageEntry<N>(vma);
+    KASSERT1(P.get(*pe), FmtHex(vma));
+    if (!isPage<N>(*pe)) return vtop<N-1>(vma);
+    return (*pe & ADDR()) + pageoffset<N>(vma);
   }
+
 
   // must be defined after Paging::getPageEntryHelper<0> specialization
   static inline constexpr vaddr start();
@@ -319,10 +320,10 @@ template<> inline ostream& operator<<(ostream& os, const Paging::PageVector<page
 }
 
 // corner cases that need dummy template instantiations
-template<> inline bool   Paging::mapFromLazyInternal<0>(vaddr, uint64_t, uint64_t, FrameManager&) { KABORT0(); return false; }
-template<> inline size_t Paging::testInternal<0>(vaddr, uint64_t ) { KABORT0(); return 0; }
-template<> inline void   Paging::clearInternal<0>(vaddr, vaddr, FrameManager&) { KABORT0(); }
-template<> inline paddr  Paging::vtopInternal<0>(vaddr) { KABORT0(); return 0; }
+template<> inline bool   Paging::mapFromLazy<0>(vaddr, uint64_t, uint64_t, FrameManager&) { KABORT0(); return false; }
+template<> inline size_t Paging::test<0>(vaddr, uint64_t ) { KABORT0(); return 0; }
+template<> inline void   Paging::clear<0>(vaddr, vaddr, FrameManager&) { KABORT0(); }
+template<> inline paddr  Paging::vtop<0>(vaddr) { KABORT0(); return 0; }
 
 // must be defined after Paging::getPageEntryHelper<0> specialization
 inline constexpr vaddr Paging::start() {
@@ -330,17 +331,6 @@ inline constexpr vaddr Paging::start() {
 }
 inline constexpr vaddr Paging::end() {
   return getPageEntryInternal<1>(topaddr) + sizeof(PageEntry);
-}
-
-template <unsigned int N>
-inline bool Paging::mapTable( vaddr vma, uint64_t pff, FrameManager& fm ) {
-  KASSERT1( pff == 0 || pff == PageFaultFlags::WR(), FmtHex(pff) );
-  paddr pma = fm.allocFrame<pagetablepl>();
-  vma = align_down(vma, pagetableps);
-  bool success = mapInternal<pagetablepl,false>(vma, pma | PageTable | User, 0);
-  if (!success) fm.release(pma, pagetableps);
-  DBG::outl(DBG::Paging, "Paging::mapTable<", N, ">: [", PageVector<N>(vma), "] -> ", success ? FmtHex(pma) : FmtHex(topaddr));
-  return *getPageEntry<pagetablepl>(vma) & P();
 }
 
 inline void Paging::clone(paddr newpt) {
@@ -356,9 +346,8 @@ inline void Paging::clone(paddr newpt) {
   memcpy(clonedPE + ptentries/2, kernelPE + ptentries/2, pagetableps / 2);
   // set recursive page mapping entry
   clonedPE[recptindex] = newpt | PageTable;
-  // unmap PML4 page, invalidate mapping, unlock
-  unmap<pagetablepl>(cloneAddr);
-  CPU::InvTLB(cloneAddr);
+  // unmap PML4 page, unlock
+  unmap<pagetablepl,true>(cloneAddr);
   LocalProcessor::unlock();
 }
 
@@ -401,6 +390,7 @@ inline paddr Paging::bootstrap(vaddr kernelBase, vaddr kernelData, vaddr kernelE
 inline vaddr Paging::bootstrap2(RegionSet<Region<paddr>>& mem, size_t maxHeap, size_t initHeap, _friend<Machine>) {
   // PDPT setup for maximum kernel heap -> ready for cloning later
   vaddr bottom = align_down(kerneltop - max(maxHeap,initHeap), pagesize<kernelpl+2>());
+  KASSERT1(bottom >= kernelbot, bottom);
   vaddr addr = bottom;
   for (; addr < kerneltop; addr += pagesize<kernelpl+2>()) {
     paddr pdpt = mem.retrieve_front(pagetableps);
@@ -428,7 +418,31 @@ inline vaddr Paging::bootstrap2(RegionSet<Region<paddr>>& mem, size_t maxHeap, s
     DBG::outl(DBG::Paging, "Paging::bootstrap - PD   [", PageVector<kernelpl>(addr), "] Page: ", FmtHex(addr), "-> ", FmtHex(page));
   }
 
+  // PDPT setup for zeroing
+  addr = zeroBase;
+  paddr pdpt = mem.retrieve_front(pagetableps);
+  setPageEntry<kernelpl+2>(addr, pdpt | PageTable);
+  memset(getPageTable<kernelpl+1>(addr), 0, pagetableps);
+  DBG::outl(DBG::Paging, "Paging::bootstrap - PML4 [", PageVector<kernelpl+2>(addr), "] PDPT: ", FmtHex(pdpt));
+
+  // PD setup for zeroing for up to 'ptentries' cores
+  paddr pd = mem.retrieve_front(pagetableps);
+  setPageEntry<kernelpl+1>(addr, pd | PageTable);
+  memset(getPageTable<kernelpl>(addr), 0, pagetableps);
+  DBG::outl(DBG::Paging, "Paging::bootstrap - PDPT [", PageVector<kernelpl+1>(addr), "] PD: ", FmtHex(pd));
+
   return bottom;
+}
+
+inline void Paging::bootstrap3(mword coreCount, _friend<Machine>) {
+  // PD setup for zeroing for more than 'ptentries' cores
+  vaddr addr = zeroBase;
+  for (mword count = ptentries; count < coreCount; count += ptentries) {
+    addr += pagesize<kernelpl+1>();
+    paddr pd = CurrFM().allocFrame<pagetablepl>();
+    setPageEntry<kernelpl+1>(addr, pd | PageTable);
+    DBG::outl(DBG::Paging, "Paging::bootstrap - PDPT [", PageVector<kernelpl+1>(addr), "] PD: ", FmtHex(pd));
+  }
 }
 
 #endif /* _Paging_h_ */

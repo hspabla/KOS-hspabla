@@ -40,24 +40,21 @@ namespace Runtime {
     unreachable();
   }
 
-  static void postResume(bool invoke, Thread& prevThread, AddressSpace& nextAS) {
-    CHECK_LOCK_COUNT(1);
-    AddressSpace& prevAS = CurrAS();
-    if fastpath(prevThread.state == Thread::Finishing) {
-      if (prevAS.user() && reinterpret_cast<Process*>(&prevAS)->destroyThread(prevThread)) {
-        nextAS.switchTo(true);
-        delete reinterpret_cast<Process*>(&prevAS);
-      } else {
-        nextAS.switchTo();
-      }
-      prevThread.destroy();
-    } else {
-      if (prevAS.user()) prevThread.ctx.save();
-      nextAS.switchTo();
-    }
-    if (nextAS.user()) Runtime::getCurrThread()->ctx.restore();
-    if (invoke) LocalProcessor::unlock(true);
+  static AddressSpace& preThreadSwitch() {
+    CurrAS().preThreadSwitch();
+    return CurrAS();
   }
+
+  static void postThreadResume(Thread& prevThread, AddressSpace& nextAS) {
+    CHECK_LOCK_COUNT(1);
+    AddressSpace* prevAS = nextAS.switchTo();
+    nextAS.postThreadResume();
+    if (prevThread.finishing()) {
+      prevThread.destroy();
+      prevAS->postThreadDestroy();
+    }
+  }
+
 }
 
 #else

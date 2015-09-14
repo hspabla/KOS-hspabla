@@ -29,9 +29,10 @@ class Process : public AddressSpace {
     mword idx;
     vaddr stackAddr;          // bottom of allocated memory for thread/stack
     size_t stackSize;         // size of allocated memory
+    CPU::MachContext mctx;    // fs/gs registers
     UserThread(vaddr ksb, size_t kss) : JoinableThread(ksb, kss) {}
     static inline UserThread* create(size_t kss = defaultStack) {
-      vaddr mem = kernelSpace.allocStack(kss);
+      vaddr mem = kernelAS.allocStack(kss);
       vaddr This = mem + kss - sizeof(UserThread);
       DBG::outl(DBG::Threads, "UserThread create: ", FmtHex(mem), '/', FmtHex(kss), '/', FmtHex(This));
       return new (ptr_t(This)) UserThread(mem, kss);
@@ -39,29 +40,39 @@ class Process : public AddressSpace {
   };
 
   SpinLock threadLock;
-  size_t runningThreads;
+  size_t activeThreads;
+  size_t existingThreads;
   ManagedArray<UserThread*,KernelAllocator> threadStore;
 
+  string fileName;
   vaddr sigHandler;
 
-  inline UserThread* load(const string& fileName);
-  inline UserThread* setupThread(funcvoid2_t wrapper, funcvoid1_t func, ptr_t data);
   static void invokeUser(funcvoid2_t func, ptr_t arg1, ptr_t arg2) __noreturn;
+  static void loadAndRun(Process*);
+  inline funcvoid2_t load();
+  inline UserThread* setupThread(ptr_t invoke, ptr_t wrapper, ptr_t func, ptr_t data);
 
 public:
   SynchronizedArray<Access*,KernelAllocator> ioHandles; // used in syscalls.cc
   ManagedArray<Semaphore*,KernelAllocator> semStore;    // used in syscalls.cc
   SpinLock semStoreLock;                                // used in syscalls.cc
 
-  Process() : runningThreads(0), threadStore(1), sigHandler(0), ioHandles(4) {
+  Process() : activeThreads(0), existingThreads(0),
+    threadStore(1), sigHandler(0), ioHandles(4) {
     ioHandles.store(knew<InputAccess>());
     ioHandles.store(knew<OutputAccess>(StdOut));
     ioHandles.store(knew<OutputAccess>(StdErr));
     ioHandles.store(knew<OutputAccess>(StdDbg));
   }
-  ~Process();
+  virtual ~Process();
 
-  void exec(const string& fileName);
+  static UserThread* CurrUT() {
+    UserThread* ut = reinterpret_cast<UserThread*>(LocalProcessor::getCurrThread());
+    KASSERT0(ut);
+    return ut;
+  }
+
+  void exec(const string& fn);
   void exit() __noreturn;
 
   void  setSignalHandler(vaddr sh) { sigHandler = sh; }
@@ -70,17 +81,18 @@ public:
   mword createThread(funcvoid2_t wrapper, funcvoid1_t func, ptr_t data);
   void  exitThread(ptr_t result) __noreturn;
   int   joinThread(mword idx, ptr_t& result);
-  bool  destroyThread(Thread& t);
 
   mword getID() { return 0; }
-  static mword getCurrentThreadID() {
-    return reinterpret_cast<UserThread*>(LocalProcessor::getCurrThread())->idx;
-  }
+  static mword getCurrentThreadID() { return CurrUT()->idx; }
+
+  virtual void preThreadSwitch();
+  virtual void postThreadDestroy();
+  virtual void postThreadResume();
 };
 
 static inline Process& CurrProcess() {
   AddressSpace& as = CurrAS();
-  KASSERT0(as.user());
+  KASSERT0(&as != &defaultAS);
   return reinterpret_cast<Process&>(as);
 }
 

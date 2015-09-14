@@ -18,6 +18,7 @@
 
 void AddressSpace::print(ostream& os) const {
   static_assert(recptindex == ptentries / 2, "recptindex must be ptentries / 2");
+  bool kernel = (this == &defaultAS);
   os << "AS(" << FmtHex(pagetable) << "):";
   vaddr end = kernel ? Paging::end() : userbot;
   for (;;) {

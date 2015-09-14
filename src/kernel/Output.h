@@ -50,19 +50,21 @@ public:
   void lock() { olock.acquire(); }
   void unlock() { olock.release(); }
 
-  void print() {}
+  template <bool cpu> void print() {}
 
-  template<typename T, typename... Args>
+  template<bool cpu, typename T, typename... Args>
   void print( const T& msg, const Args&... a ) {
+    if (cpu) os << 'C' << LocalProcessor::getIndex() << '/' << FmtHex(CPU::readCR3()) << ": ";
     os << msg;
-    print(a...);
+    print<false>(a...);
   }
 
-  template<typename T, typename... Args>
+  template<bool cpu, typename T, typename... Args>
   void printl( const T& msg, const Args&... a ) {
     ScopedLock<OwnerLock> sl(olock);
+    if (cpu) os << 'C' << LocalProcessor::getIndex() << '/' << FmtHex(CPU::readCR3()) << ": ";
     os << msg;
-    print(a...);
+    print<false>(a...);
   }
 
   ssize_t write(const void *buf, size_t len) {
@@ -80,6 +82,7 @@ class DBG {
 public:
   enum Level : size_t {
     Acpi = 0,
+    AddressSpace,
     Boot,
     Basic,
     CDI,
@@ -115,30 +118,30 @@ public:
 
   template<typename... Args> static void out1( Level c, const Args&... a ) {
     if (c && !test(c)) return;
-    StdDbg.printl(a...);
+    StdDbg.printl<false>(a...);
 #if TESTING_DEBUG_STDOUT
-    if (c) StdOut.printl(a...);
+    if (c) StdOut.printl<true>(a...);
 #endif
   }
   template<typename... Args> static void outs( Level c, const Args&... a ) {
     if (c && !test(c)) return;
-    StdDbg.printl('C', LocalProcessor::getIndex(), '/', FmtHex(CPU::readCR3()), ": ", a...);
+    StdDbg.printl<false>(a...);
 #if TESTING_DEBUG_STDOUT
-    if (c) StdOut.printl('C', LocalProcessor::getIndex(), '/', FmtHex(CPU::readCR3()), ": ", a...);
+    if (c) StdOut.printl<true>(a...);
 #endif
   }
   template<typename... Args> static void outl( Level c, const Args&... a ) {
     if (c && !test(c)) return;
-    StdDbg.printl('C', LocalProcessor::getIndex(), '/', FmtHex(CPU::readCR3()), ": ", a..., kendl);
+    StdDbg.printl<true>(a..., kendl);
 #if TESTING_DEBUG_STDOUT
-    if (c) StdOut.printl('C', LocalProcessor::getIndex(), '/', FmtHex(CPU::readCR3()), ": ", a..., kendl);
+    if (c) StdOut.printl<true>(a..., kendl);
 #endif
   }
   static void outl( Level c ) {
     if (c && !test(c)) return;
-    StdDbg.printl(kendl);
+    StdDbg.printl<false>(kendl);
 #if TESTING_DEBUG_STDOUT
-    if (c) StdOut.printl(kendl);
+    if (c) StdOut.printl<false>(kendl);
 #endif
   }
 };
@@ -146,15 +149,15 @@ public:
 class KOUT {
 public:
   template<typename... Args> static void out1( const Args&... a ) {
-    StdOut.printl(a...);
+    StdOut.printl<false>(a...);
 #if TESTING_STDOUT_DEBUG
-    StdDbg.printl(a...);
+    StdDbg.printl<true>(a...);
 #endif
   }
   template<typename... Args> static void outl( const Args&... a ) {
-    StdOut.printl(a..., kendl);
+    StdOut.printl<false>(a..., kendl);
 #if TESTING_STDOUT_DEBUG
-    StdDbg.printl(a..., kendl);
+    StdDbg.printl<true>(a..., kendl);
 #endif
   }
 };
@@ -162,38 +165,38 @@ public:
 class KERR {
 public:
   template<typename... Args> static void out1( const Args&... a ) {
-    StdErr.printl(a...);
+    StdErr.printl<false>(a...);
 #if TESTING_STDOUT_DEBUG
-    StdDbg.printl(a...);
+    StdDbg.printl<true>(a...);
 #endif
   }
   template<typename... Args> static void outl( const Args&... a ) {
-    StdErr.printl(a..., kendl);
+    StdErr.printl<false>(a..., kendl);
 #if TESTING_STDOUT_DEBUG
-    StdDbg.printl(a..., kendl);
+    StdDbg.printl<true>(a..., kendl);
 #endif
   }
 };
 
 template<typename... Args>
 static inline void kassertprint1(const Args&... a) {
-  StdDbg.lock();
-  StdDbg.print(a...);
   StdErr.lock();
-  StdErr.print(a...);
+  StdErr.print<false>(a...);
+  StdDbg.lock();
+  StdDbg.print<true>(a...);
 }
 
 template<typename... Args>
 static inline void kassertprint2(const Args&... a) {
-  StdDbg.print(a..., kendl);
-  StdDbg.unlock();
-  StdErr.print(a..., kendl);
+  StdErr.print<false>(a..., kendl);
   StdErr.unlock();
+  StdDbg.print<false>(a..., kendl);
+  StdDbg.unlock();
 }
 
-#define KABORTN(args...)       {                      { kassertprints(  "KABORT: "       " in " __FILE__ ":", __LINE__, __func__); kassertprint2(args); Reboot(); } }
-#define KASSERTN(expr,args...) { if slowpath(!(expr)) { kassertprints( "KASSERT: " #expr " in " __FILE__ ":", __LINE__, __func__); kassertprint2(args); Reboot(); } }
-#define KCHECKN(expr,args...)  { if slowpath(!(expr)) { kassertprints(  "KCHECK: " #expr " in " __FILE__ ":", __LINE__, __func__); kassertprint2(args); } }
+#define KABORTN(args...)       {                      { kassertprints(  "KABORT: "       " in " __FILE__ ":", __LINE__, __func__); kassertprint2(" - ", args); Reboot(); } }
+#define KASSERTN(expr,args...) { if slowpath(!(expr)) { kassertprints( "KASSERT: " #expr " in " __FILE__ ":", __LINE__, __func__); kassertprint2(" - ", args); Reboot(); } }
+#define KCHECKN(expr,args...)  { if slowpath(!(expr)) { kassertprints(  "KCHECK: " #expr " in " __FILE__ ":", __LINE__, __func__); kassertprint2(" - ", args); } }
 
 extern void ExternDebugPrintf(DBG::Level c, const char* fmt, va_list args);
 

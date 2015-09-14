@@ -245,12 +245,13 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   DBG::outl(DBG::Boot);
 
   // init kernel address space
-  kernelSpace.initKernel(kernelBot, heapStart, pml4addr);
-  DBG::outl(DBG::Boot, "AS/init: ", kernelSpace);
+  kernelAS.setup(kernelBot, heapStart, _friend<Machine>());
+  defaultAS.init(pml4addr, _friend<Machine>());
+  DBG::outl(DBG::Boot, "AS/init: ", defaultAS);
 
   // set frame manager & address space in boot processor -> needed for page mappings
   bootProcessor.frameManager = &frameManager;
-  bootProcessor.currAS = &kernelSpace;
+  bootProcessor.currAS = &defaultAS;
 
   // initialize frame manager after rerun of constructors
   frameManager.init((bufptr_t)(kerneltop - fmMemory));
@@ -259,7 +260,7 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
     frameManager.release(it->start, it->end - it->start);
   }
   // now frame manager can initialize zeroing AS <- needs page mappings
-  frameManager.initZero(_friend<Machine>());
+  while (frameManager.zeroMemory());
   DBG::outl(DBG::Boot, "FM/init: ", frameManager);
 
   // parse ACPI tables: find CPUs, APICs, IOAPICs <- needs page mappings
@@ -302,11 +303,13 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   for (const pair<uint32_t,uint32_t>& ap : apicMap) {
     DBG::outl( DBG::Boot, "Scheduler ", coreIdx, " at ", FmtHex(schedulerTable + coreIdx));
     schedulerTable[coreIdx].init(schedulerTable[(coreIdx + 1) % processorCount]);
-    processorTable[coreIdx].setup(kernelSpace, schedulerTable[coreIdx], frameManager,
+    processorTable[coreIdx].setup(defaultAS, schedulerTable[coreIdx], frameManager,
       uMarker[coreIdx], kMarker[coreIdx], coreIdx, ap.second, ap.first);
-    kernelSpace.initProcessor(kMarker[coreIdx]);
     coreIdx += 1;
   }
+
+  // complete paging setup for memory zeroing, if core count > 512
+  Paging::bootstrap3(processorCount, _friend<Machine>());
 
   // map APIC page, use APIC ID to determine bspIndex
   Paging::mapPage<1>(apicAddr, apicPhysAddr, Paging::MMapIO, _friend<Machine>());
@@ -359,22 +362,22 @@ void Machine::initBSP2() {
 
   // NOTE: could use broadcast and ticket lock sequencing
   // start up APs one by one (on boot stack): APs go into long mode and halt
-  StdOut.print("AP init (", FmtHex(BOOTAP16 / 0x1000), "):");
+  StdOut.print<false>("AP init (", FmtHex(BOOTAP16 / 0x1000), "):");
   for (mword idx = 0; idx < processorCount; idx += 1) {
     if (idx != bspIndex) {
       apIndex = idx;
       for (;;) {
         mword ai = processorTable[idx].apicID;
-        StdOut.print(' ', ai);
+        StdOut.print<false>(' ', ai);
         MappedAPIC()->sendInitIPI(ai);
-        StdOut.print('I');
+        StdOut.print<false>('I');
         Clock::wait(100);                // wait for HW init
         MappedAPIC()->sendInitDeassertIPI(ai);
-        StdOut.print('D');
+        StdOut.print<false>('D');
         Clock::wait(100);                // wait for HW init
         for (int i = 0; i < 10; i += 1) {
           MappedAPIC()->sendStartupIPI(ai, BOOTAP16 / 0x1000);
-          StdOut.print('S');
+          StdOut.print<false>('S');
           for (int j = 0; j < 1000; j += 1) {
             Clock::wait(1);
             if (apIndex != idx) goto apDone;
@@ -382,10 +385,10 @@ void Machine::initBSP2() {
         }
       }
 apDone:
-      StdOut.print('|', idx);
+      StdOut.print<false>('|', idx);
     }
   }
-  StdOut.print(kendl);
+  StdOut.print<false>(kendl);
 
   DBG::outl(DBG::Boot, "Building kernel filesystem...");
   // initialize kernel file system with boot modules
@@ -420,18 +423,16 @@ apDone:
 void Machine::bootCleanup() {
   DBG::outl(DBG::Boot, "********* MEMORY CLEANUP *********");
 
-  // zero & release AP boot code
-  memset((ptr_t)(kernelBase + BOOTAP16), 0, boot16Size);
-  frameManager.release<false>(BOOTAP16, boot16Size);
+  // release AP boot code
+  frameManager.release(BOOTAP16, boot16Size);
   DBG::outl(DBG::Boot, "FM/free16:", frameManager);
 
-  // zero & release kernel boot memory
-  memset((ptr_t)&__KernelBoot, 0, &__KernelCode - &__KernelBoot);
+  // release kernel boot memory
   Paging::unmap<kernelpl>(kernelBase, _friend<Machine>());
-  frameManager.release<false>(vaddr(&__KernelBoot) - kernelBase, kernelBase + kernelps - vaddr(&__KernelBoot));
+  frameManager.release(vaddr(&__KernelBoot) - kernelBase, kernelBase + kernelps - vaddr(&__KernelBoot));
   for ( vaddr x = kernelBase + kernelps; x < vaddr(&__KernelCode); x += kernelps / 2 ) {
     Paging::unmap<kernelpl>(x, _friend<Machine>());
-    frameManager.release<false>(x - kernelBase, kernelps);
+    frameManager.release(x - kernelBase, kernelps);
   }
   DBG::outl(DBG::Boot, "FM/boot: ", frameManager);
 
@@ -445,7 +446,7 @@ void Machine::bootCleanup() {
 #endif
 
   // VM addresses from above are not reused, thus no TLB invalidation needed
-  DBG::outl(DBG::Boot, "AS/boot: ", kernelSpace);
+  DBG::outl(DBG::Boot, "AS/boot: ", defaultAS);
 }
 
 void Machine::bootMain() {
@@ -942,11 +943,12 @@ extern "C" void exception_handler_errcode_0x0d(mword* isrFrame, mword ec) {
 extern "C" void exception_handler_errcode_0x0e(mword* isrFrame, mword ec) {
   IsrEntry<false> ie(isrFrame);
   vaddr da = CPU::readCR2();
-  if (da < Paging::start() || da >= Paging::end()) { // regular page fault
+  if (userbot <= da && da < usertop) {               // regular page fault
     if (CurrAS().pagefault(da, ec)) return;
   }
-  if (!ie.fromUser()) {                              // fault in page table region
-    if (CurrAS().tablefault(da, ec)) return;
+  if (Paging::start() <= da && da < Paging::end()) { // fault in page table region
+    KASSERT0(!ie.fromUser());
+    if (BaseAddressSpace::tablefault(da, ec)) return;
   }
   KERR::outl("PAGE FAULT @ ", FmtHex(*isrFrame), " / data: ", FmtHex(da), " / flags:", Paging::PageFaultFlags(ec));
   Reboot(*isrFrame);

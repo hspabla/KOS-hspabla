@@ -180,6 +180,7 @@ vclean: clean
 	@for d in $(SUBDIRS); do $(MAKE) -C $$d $@; done
 	rm -f Makefile.state Makefile.dep
 	rm -f /tmp/KOS.dbg /tmp/KOS.serial /tmp/KOS.pipe /tmp/qemu.log
+	rm -f /tmp/KOS.serial.*
 
 dep depend Makefile.dep: main/UserMain.h
 	@for d in $(SUBDIRS); do $(MAKE) -C $$d $@; done

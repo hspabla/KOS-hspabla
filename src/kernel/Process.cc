@@ -20,18 +20,22 @@
 #include "extern/elfio/elfio.hpp"
 
 void Process::invokeUser(funcvoid2_t func, ptr_t arg1, ptr_t arg2) {
-  UserThread* ut = reinterpret_cast<UserThread*>(LocalProcessor::getCurrThread());
-  KASSERT0(ut);
+  UserThread* ut = Process::CurrUT();
   ut->stackSize = defaultUserStack;
   ut->stackAddr = CurrAS().allocStack(ut->stackSize);
-  DBG::outl(DBG::Threads, "UThread start: ", FmtHex(ut), '/', FmtHex((ptr_t)func));
+  DBG::outl(DBG::Threads, "UserThread start: ", FmtHex(ut), '/', FmtHex((ptr_t)func));
   startUserCode(arg1, arg2, vaddr(ut), func, ut->stackAddr + ut->stackSize);
   unreachable();
 }
 
-inline Process::UserThread* Process::load(const string& fileName) {
-  KASSERT0(threadStore.empty());
-  AddressSpace::Temp ast(*this);
+void Process::loadAndRun(Process* p) {
+  funcvoid2_t entry = p->load();
+  DBG::outl(DBG::Process, "Process entry: ", FmtHex(ptr_t(entry)));
+  invokeUser(entry, nullptr, nullptr);
+}
+
+inline funcvoid2_t Process::load() {
+  KASSERT0(threadStore.size() == 1);
   auto iter = kernelFS.find(fileName);
   KASSERT1(iter != kernelFS.end(), fileName.c_str())
   RamFile& rf = iter->second;
@@ -40,7 +44,7 @@ inline Process::UserThread* Process::load(const string& fileName) {
   KASSERT0(check);
   KASSERT1(elfReader.get_class() == ELFCLASS64, elfReader.get_class());
 
-  DBG::outl(DBG::Process, "Process exec: ", fileName);
+  DBG::outl(DBG::Process, "Process exec: ", FmtHex(this), ' ', fileName);
 
   vaddr currBreak = 0;
   for (int i = 0; i < elfReader.segments.size(); ++i) {
@@ -77,20 +81,18 @@ inline Process::UserThread* Process::load(const string& fileName) {
     if (mend > currBreak) currBreak = mend;
   }
 
-  initUser(currBreak);
-  ptr_t entry = (ptr_t)elfReader.get_entry();
-  DBG::outl(DBG::Process, "Process entry: ", FmtHex(entry));
-  return setupThread((funcvoid2_t)entry, (funcvoid1_t)nullptr, nullptr);
+  setup(currBreak);
+  return (funcvoid2_t)elfReader.get_entry();
 }
 
-inline Process::UserThread* Process::setupThread(funcvoid2_t wrapper, funcvoid1_t func, ptr_t data) {
+inline Process::UserThread* Process::setupThread(ptr_t invoke, ptr_t wrapper, ptr_t func, ptr_t data) {
   UserThread* ut = UserThread::create();
-  KASSERT0(ut);
   threadLock.acquire();
   ut->idx = threadStore.put(ut);
-  runningThreads += 1;
-  DBG::outl(DBG::Threads, "UThread create: ", FmtHex(ut), '/', ut->idx);
-  ut->setup((ptr_t)invokeUser, (ptr_t)wrapper, (ptr_t)func, data);
+  existingThreads += 1;
+  activeThreads += 1;
+  DBG::outl(DBG::Threads, "UserThread setup: ", FmtHex(ut), '/', ut->idx);
+  ut->setup(this, invoke, wrapper, func, data);
   threadLock.release();
   return ut;
 }
@@ -106,16 +108,16 @@ Process::~Process() {
   }
 }
 
-void Process::exec(const string& fileName) {
-  UserThread* ut = load(fileName);
+void Process::exec(const string& fn) {
+  fileName = fn;
+  UserThread* ut = setupThread((ptr_t)Process::loadAndRun, this, nullptr, nullptr);
   Scheduler::resume(*ut);
 }
 
 // detach all -> cancel all
 void Process::exit() {
-  UserThread* ut = reinterpret_cast<UserThread*>(LocalProcessor::getCurrThread());
-  KASSERT0(ut);
-  DBG::outl(DBG::Threads, "Process exit: ", FmtHex(ut));
+  UserThread* ut = CurrUT();
+  DBG::outl(DBG::Threads, "Process exit: ", FmtHex(this), ' ', FmtHex(ut));
   threadLock.acquire();
   for (size_t i = 0; i < threadStore.currentIndex(); i += 1) {
     if fastpath(threadStore.valid(i) && threadStore.get(i) != ut)	{
@@ -127,25 +129,24 @@ void Process::exit() {
 }
 
 mword Process::createThread(funcvoid2_t wrapper, funcvoid1_t func, ptr_t data) {
-  UserThread* ut = Process::setupThread(wrapper, func, data);
+  UserThread* ut = setupThread((ptr_t)invokeUser, (ptr_t)wrapper, (ptr_t)func, data);
   Scheduler::resume(*ut);
   return ut->idx;
 }
 
 void Process::exitThread(ptr_t result) {
-  UserThread* ut = reinterpret_cast<UserThread*>(LocalProcessor::getCurrThread());
-  KASSERT0(ut);
-  DBG::outl(DBG::Threads, "UThread exit: ", FmtHex(ut), '/', ut->idx);
+  UserThread* ut = CurrUT();
+  DBG::outl(DBG::Threads, "UserThread exit: ", FmtHex(ut), '/', ut->idx);
   releaseStack(ut->stackAddr, ut->stackSize);
   threadLock.acquire();
-  runningThreads -= 1;
-  if (runningThreads) ut->post(result, threadLock);
+  activeThreads -= 1;
+  if (activeThreads) ut->post(result, threadLock);
   else threadLock.release();
   LocalProcessor::getScheduler()->terminate();
 }
 
 int Process::joinThread(mword idx, ptr_t& result) {
-  DBG::outl(DBG::Threads, "UThread join: ", idx);
+  DBG::outl(DBG::Threads, "UserThread join: ", idx);
   threadLock.acquire();
   if (!threadStore.valid(idx)) {
     threadLock.release();
@@ -158,10 +159,27 @@ int Process::joinThread(mword idx, ptr_t& result) {
   return 0;
 }
 
-bool Process::destroyThread(Thread& t) {
-  UserThread& ut = reinterpret_cast<UserThread&>(t);
-  ScopedLock<> sl(threadLock);
-  KASSERT0(threadStore.valid(ut.idx));
-  threadStore.remove(ut.idx);
-  return threadStore.empty();
+void Process::preThreadSwitch() {
+  UserThread* ut = CurrUT();
+  if (ut->finishing()) {
+    ScopedLock<> sl(threadLock);
+    KASSERT0(threadStore.valid(ut->idx));
+    threadStore.remove(ut->idx);
+    if (threadStore.empty()) clean();
+  } else {
+    ut->mctx.save();
+  }
+}
+
+void Process::postThreadDestroy() {
+  { // make sure locks are freed and not touched after 'delete this'
+    ScopedLock<> sl1(threadLock);
+    existingThreads -= 1;
+    if (existingThreads) return;
+  }
+  delete this;
+}
+
+void Process::postThreadResume() {
+  CurrUT()->mctx.restore();
 }
