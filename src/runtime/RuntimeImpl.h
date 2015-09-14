@@ -45,12 +45,12 @@ namespace Runtime {
     return CurrAS();
   }
 
-  static void postThreadResume(Thread& prevThread, AddressSpace& nextAS) {
+  static void postThreadResume(Thread* prevThread, AddressSpace& nextAS) {
     CHECK_LOCK_COUNT(1);
     AddressSpace* prevAS = nextAS.switchTo();
     nextAS.postThreadResume();
-    if (prevThread.finishing()) {
-      prevThread.destroy();
+    if slowpath(prevThread) {            // cf. postSwitch() in Scheduler.cc
+      prevThread->destroy();
       prevAS->postThreadDestroy();
     }
   }

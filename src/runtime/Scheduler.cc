@@ -75,7 +75,7 @@ threadFound:
   // REMEMBER: Thread might have migrated from other processor, so 'this'
   //           might not be currThread's Scheduler object anymore.
   //           However, 'this' points to prevThread's Scheduler object.
-  Runtime::postThreadResume(*prevThread, ctx);
+  Runtime::postThreadResume(prevThread, ctx);
   if (currThread->state == Thread::Cancelled) {
     currThread->state = Thread::Finishing;
     switchThread(nullptr);
@@ -84,14 +84,16 @@ threadFound:
   return true;
 }
 
+// return 'prevThread' only if the previous thread needs to be destroyed
 extern "C" Thread* postSwitch(Thread* prevThread, Scheduler* target) {
   CHECK_LOCK_COUNT(1);
+  if slowpath(prevThread->finishing()) return prevThread;
   if fastpath(target) Scheduler::resume(*prevThread);
-  return prevThread;
+  return nullptr;
 }
 
 extern "C" void invokeThread(Thread* prevThread, Runtime::MemoryContext* ctx, funcvoid3_t func, ptr_t arg1, ptr_t arg2, ptr_t arg3) {
-  Runtime::postThreadResume(*prevThread, *ctx);
+  Runtime::postThreadResume(prevThread, *ctx);
   Runtime::EnablePreemption();
   func(arg1, arg2, arg3);
   Runtime::getScheduler()->terminate();
