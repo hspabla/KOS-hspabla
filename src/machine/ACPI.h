@@ -344,7 +344,7 @@ void AcpiOsReleaseMutex(ACPI_MUTEX Handle) { KABORT1(false,""); }
 void* AcpiOsAllocate(ACPI_SIZE Size) {
   DBG::outl(DBG::MemAcpi, "acpi alloc: ", Size);
   void* ptr = malloc(Size);
-  memset(ptr, 0, Size); // zero out memory to play it safe...
+  memset(ptr, 0, Size); // wipe memory to play it safe...
   allocations.insert( vaddr(ptr) );
   return ptr;
 }
@@ -397,7 +397,7 @@ ACPI_STATUS AcpiOsPurgeCache(ACPI_CACHE_T* Cache) {
 void* AcpiOsAcquireObject(ACPI_CACHE_T* Cache) {
   size_t size = (UINT16)(uintptr_t)Cache;
   char* addr = kmalloc<char>(size);
-  memset(addr, 0, size);
+  memset(addr, 0, size); // wipe memory to play it safe...
   return addr;
 }
 

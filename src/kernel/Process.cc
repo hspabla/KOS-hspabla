@@ -75,8 +75,11 @@ inline funcvoid2_t Process::load() {
 
     if (mend > fend) {
       DBG::outl(DBG::Process, "Process bss  segment: ", FmtHex(fend), '-', FmtHex(mend));
-      if (amend > afend) allocDirect<1>(afend, amend - afend, Data);
-      memset((ptr_t)fend, 0, mend - fend);
+      if (amend > afend) { // newly mapped memory is already wiped
+        allocDirect<1>(afend, amend - afend, Data);
+      } else {             // leftover from binary: wipe to play it safe...
+        memset((ptr_t)fend, 0, mend - fend);
+      }
     }
     if (mend > currBreak) currBreak = mend;
   }

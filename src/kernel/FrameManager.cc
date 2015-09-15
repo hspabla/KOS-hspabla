@@ -113,13 +113,3 @@ void FrameManager::zeroInternal() {
     size -= zsize;
   }
 }
-
-bool FrameManager::zeroMemory() {
-  lock.acquire();
-  if (!zeroQueue.empty()) {
-    zeroInternal();
-    return true;
-  }
-  lock.release();
-  return false;
-}

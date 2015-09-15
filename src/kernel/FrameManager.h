@@ -116,12 +116,7 @@ public:
       case kernelpl: result = baseAddress + allocLargeIdx() * largeSize; break;
       default: KABORT1(N);
     }
-    // check for impending memory shortage -> synchronous zeroing!
-    // TODO: not bullet-proof!
-    while (largeFrames.empty() && !zeroQueue.empty()) {
-      zeroInternal();
-      lock.acquire();
-    }
+    zeroLowWatermark();
     return result;
   }
 
@@ -130,11 +125,28 @@ public:
     ZeroDescriptor* zd = new (zdCache.allocate()) ZeroDescriptor(addr, size);
     ScopedLock<> sl(lock);
     zeroQueue.push_back(*zd);
+    zeroLowWatermark();
   }
 
+  void zeroLowWatermark() {
+    // TODO: address impending memory shortage -> not bullet-proof!
+    while (largeFrames.empty() && !zeroQueue.empty()) {
+      zeroInternal();
+      lock.acquire();
+    }
+  }
+
+  bool zeroMemory() {
+    lock.acquire();
+    bool zero = !zeroQueue.empty();
+    if fastpath(zero) zeroInternal();
+    else lock.release();
+    return zero;
+  }
+
+  void zeroInternal(); // drops the lock
+
   paddr allocRegion( size_t& size, paddr align, paddr lim );
-  void zeroInternal();
-  bool zeroMemory();
 };
 
 static inline FrameManager& CurrFM() {
