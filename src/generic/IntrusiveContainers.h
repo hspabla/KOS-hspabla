@@ -26,7 +26,7 @@ public:
     T* next;
   public:
     constexpr Link() : next(nullptr) {}
-    bool onStack() { return next != nullptr; }
+    bool onStack() const { return next != nullptr; }
   } __packed;
 
 private:
@@ -36,34 +36,47 @@ public:
   IntrusiveStack() : head(nullptr) {}
   bool empty() const { return head == nullptr; }
 
-  T*              peek()       { return head; }
-  const T*        peek() const { return head; }
+  T*              front()       { return head; }
+  const T*        front() const { return head; }
 
   static T*       next(      T& elem) { return elem.Link::next; }
   static const T* next(const T& elem) { return elem.Link::next; }
 
-  void push(T& elem) {
-    GENASSERT1(!elem.onStack(), &elem);
-    elem.Link::next = head;
-    head = elem;
-  }
-
   void push(T& first, T& last) {
-    GENASSERT1(!last.onStack(), &first);
+    GENASSERT1(!last.onStack(), FmtHex(&first));
     last.Link::next = head;
     head = first;
   }
 
-  T* pop(size_t count = 1) {
-    GENASSERT1(!empty(), this);
+  void push(T& elem) {
+    push(elem, elem);
+  }
+
+  T* pop() {
+    GENASSERT1(!empty(), FmtHex(this));
     T* last = head;
-    for (size_t i = 0; i < count; i += 1) {
-      if slowpath(next(*last) == nullptr) break;
-      last = next(*last);
+    head = next(*last);
+    last->Link::next = nullptr;
+    return last;
+  }
+
+  T* pop(size_t& count) {
+    GENASSERT1(!empty(), FmtHex(this));
+    T* last = head;
+    for (size_t i = 1; i < count; i += 1) {
+      if slowpath(next(*last) == nullptr) count = i; // breaks loop and sets count
+      else last = next(*last);
     }
     head = next(*last);
     last->Link::next = nullptr;
     return last;
+  }
+
+  void transferFrom(IntrusiveStack& es, size_t& count) {
+    GENASSERT1(!es.empty(), FmtHex(&es));
+    T* first = es.front();
+    T* last = es.pop(count);
+    push(*first, *last);
   }
 } __packed;
 
@@ -73,6 +86,9 @@ public:
   class Link {
     friend class IntrusiveQueue<T,ID>;
     T* next;
+  public:
+    constexpr Link() : next(nullptr) {}
+    bool onQueue() const { return next != nullptr; }
   } __packed;
 
 private:
@@ -82,22 +98,23 @@ private:
 public:
   IntrusiveQueue() : head(nullptr), tail(nullptr) {}
   bool empty() const {
-    GENASSERT1((head == nullptr) == (tail == nullptr), this);
+    GENASSERT1((head == nullptr) == (tail == nullptr), FmtHex(this));
     return head == nullptr;
   }
 
-  T*              peek_front()       { return head; }
-  const T*        peek_front() const { return head; }
-  T*              peek_back()        { return tail; }
-  const T*        peek_back()  const { return tail; }
+  T*              front()       { return head; }
+  const T*        front() const { return head; }
+  T*              back()        { return tail; }
+  const T*        back()  const { return tail; }
 
   static T*       next(      T& elem) { return elem.Link::next; }
   static const T* next(const T& elem) { return elem.Link::next; }
 
   void push(T& first, T& last) {
+    GENASSERT1(!last.onQueue(), FmtHex(&first));
     if slowpath(!head) head = &first;
     else {
-      GENASSERT1(tail != nullptr, this);
+      GENASSERT1(tail != nullptr, FmtHex(this));
       tail->Link::next = &first;
     }
     tail = &last;
@@ -107,20 +124,31 @@ public:
     push(elem, elem);
   }
 
-  T* pop(size_t count = 1) {
-    GENASSERT1(!empty(), this);
+  T* pop() {
+    GENASSERT1(!empty(), FmtHex(this));
     T* last = head;
-    for (size_t i = 0; i < count; i += 1) {
-      if slowpath(next(*last) == nullptr) break;
-      last = next(*last);
-    }
     head = next(*last);
     if slowpath(tail == last) tail = nullptr;
+    last->Link::next = nullptr;
     return last;
   }
 
-  void transfer(IntrusiveQueue& eq, size_t count) {
-    T* first = eq.peek_front();
+  T* pop(size_t& count) {
+    GENASSERT1(!empty(), FmtHex(this));
+    T* last = head;
+    for (size_t i = 1; i < count; i += 1) {
+      if slowpath(next(*last) == nullptr) count = i; // breaks loop and sets count
+      else last = next(*last);
+    }
+    head = next(*last);
+    if slowpath(tail == last) tail = nullptr;
+    last->Link::next = nullptr;
+    return last;
+  }
+
+  void transferFrom(IntrusiveQueue& eq, size_t& count) {
+    GENASSERT1(!eq.empty(), FmtHex(&eq));
+    T* first = eq.front();
     T* last = eq.pop(count);
     push(*first, *last);
   }
@@ -143,8 +171,8 @@ public:
       }
     }
 #endif
-    bool onList() {
-      GENASSERT1((prev == nullptr) == (next == nullptr), this);
+    bool onList() const {
+      GENASSERT1((prev == nullptr) == (next == nullptr), FmtHex(this));
       return next != nullptr;
     }
   } __packed;
@@ -170,8 +198,8 @@ public:
   static const T* prev(const T& elem) { return (const T*)elem.Link::prev; }
 
   static void insert_before(T& next, T& elem) {
-    GENASSERT1(!elem.onList(), &elem);
-    GENASSERT1(next.onList(), &prev);
+    GENASSERT1(!elem.onList(), FmtHex(&elem));
+    GENASSERT1(next.onList(), FmtHex(&prev));
     next.Link::prev->Link::next = &elem;
     elem.Link::prev = next.Link::prev;
     next.Link::prev = &elem;
@@ -179,9 +207,9 @@ public:
   }
 
   static void insert_after(T& prev, T& first, T&last) {
-    GENASSERT1(first.Link::prev == nullptr, &first);
-    GENASSERT1(last.Link::next == nullptr, &last);
-    GENASSERT1(prev.onList(), &prev);
+    GENASSERT1(first.Link::prev == nullptr, FmtHex(&first));
+    GENASSERT1(last.Link::next == nullptr, FmtHex(&last));
+    GENASSERT1(prev.onList(), FmtHex(&prev));
     prev.Link::next->Link::prev = &last;
     last.Link::next = prev.Link::next;
     prev.Link::next = &first;
@@ -193,7 +221,7 @@ public:
   }
 
   static T* remove(T& elem) {
-    GENASSERT1(elem.onList(), &elem);
+    GENASSERT1(elem.onList(), FmtHex(&elem));
     elem.Link::prev->Link::next = elem.Link::next;
     elem.Link::next->Link::prev = elem.Link::prev;
     elem.Link::prev = nullptr;
@@ -202,9 +230,9 @@ public:
   }
 
   T* remove(T& first, size_t& count) {
-    GENASSERT1(first.onList(), &first);
+    GENASSERT1(first.onList(), FmtHex(&first));
     T* last = &first;
-    for (size_t i = 0; i < count; i += 1) {
+    for (size_t i = 1; i < count; i += 1) {
       if slowpath(next(*last) == fence()) count = i; // breaks loop and sets count
       else last = next(*last);
     }
@@ -219,17 +247,13 @@ public:
   void push_back(T& elem)            { insert_after (*back(),  elem); }
   void splice_back(T& first, T&last) { insert_after (*back(),  first, last); }
 
-  T* pop_front() { GENASSERT1(!empty(), this); return remove(*front()); }
-  T* pop_back()  { GENASSERT1(!empty(), this); return remove(*back()); }
+  T* pop_front() { GENASSERT1(!empty(), FmtHex(this)); return remove(*front()); }
+  T* pop_back()  { GENASSERT1(!empty(), FmtHex(this)); return remove(*back()); }
 
-  T* split_front(size_t& count) {
-    GENASSERT1(!empty(), this);
-    return remove(*front(), count);
-  }
-
-  void transfer(IntrusiveList& el, size_t& count) {
+  void transferFrom(IntrusiveList& el, size_t& count) {
+    GENASSERT1(!el.empty(), FmtHex(&el));
     T* first = el.front();
-    T* last = el.split_front(count);
+    T* last = el.remove(first, count);
     splice_back(*first, *last);
   }
 } __packed;

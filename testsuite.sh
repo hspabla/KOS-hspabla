@@ -15,7 +15,7 @@ for compile in gcc clang gccdebug clangdebug; do
 	for target in run vbox bochs; do
 		echo -n > /tmp/KOS.serial
 		make $flags $target &
-		sleep 1
+		sleep 3
 		case $target in
 			run)   pid=$(pgrep -f "qemu-system-x86_64.*KOS");;
 			vbox)  pid=$(pgrep -f ".*/lib/.*VirtualBox.*KOS");;

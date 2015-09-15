@@ -51,9 +51,8 @@ using namespace std;
 struct FmtHex {
   mword val;
   int digits;
-  FmtHex(mword p,       int d = 0) : val(mword(p)), digits(d) {}
-  FmtHex(ptr_t p,       int d = 0) : val(mword(p)), digits(d) {}
-  FmtHex(const char* p, int d = 0) : val(mword(p)), digits(d) {}
+  FmtHex(mword p,  int d = 0) : val(mword(p)), digits(d) {}
+  FmtHex(cptr_t p, int d = 0) : val(mword(p)), digits(d) {}
 };
 
 inline ostream& operator<<(ostream &os, const FmtHex& h) {
