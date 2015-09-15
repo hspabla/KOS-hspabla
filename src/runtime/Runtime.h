@@ -44,6 +44,23 @@ static const mword  maxPriority = 3;
 
 namespace Runtime {
 
+  /**** platform-specific ready queue ****/
+
+  template<size_t Levels>
+  class ReadyQueue {
+    BasicLock lock;
+    size_t readyCount;
+    size_t cpuCount;
+    IntrusiveList<Thread> readyQueue[Levels];
+  public:
+    ReadyQueue(size_t c) : readyCount(0), cpuCount(c) {}
+    bool empty() { return 0 == (volatile size_t&)readyCount; }
+    size_t size() { return readyCount; }
+    inline bool push(Thread& t, mword);
+    inline Thread* pop(size_t maxlevel);
+    inline void balanceWith(ReadyQueue& rq);
+  };
+
   /**** additional thread fields that depend on runtime system ****/
 
   struct ThreadStats {

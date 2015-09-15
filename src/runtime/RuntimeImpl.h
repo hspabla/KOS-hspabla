@@ -25,10 +25,34 @@
 
 namespace Runtime {
 
+  template<size_t Levels>
+  inline bool ReadyQueue<Levels>::push(Thread& t, mword prio) {
+    ScopedLock<> sl(lock);
+    readyQueue[prio].push_back(t);
+    readyCount += 1;
+    return (readyCount == 1);
+  }
+
+  template<size_t Levels>
+  inline Thread* ReadyQueue<Levels>::pop(size_t maxlevel) {
+    ScopedLock<> sl(lock);
+    for (mword i = 0; i < maxlevel; i += 1) {
+      if (!readyQueue[i].empty()) {
+        readyCount -= 1;
+        return readyQueue[i].pop_front();
+      }
+    }
+    return nullptr;
+  }
+
+  template<size_t Levels>
+  inline void ReadyQueue<Levels>::balanceWith(ReadyQueue& rq) {
+  }
+
   static void idleLoop(Scheduler* s) {
     for (;;) {
       mword halt = s->preemption + 3;
-      while (!s->readyCount && sword(halt - s->preemption) > 0) CPU::Pause();
+      while (s->rq.empty() && sword(halt - s->preemption) > 0) CPU::Pause();
       halt = s->resumption;
       LocalProcessor::lock(true);
       s->preempt();

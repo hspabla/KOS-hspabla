@@ -26,9 +26,7 @@ class Scheduler {
   friend void Runtime::idleLoop(Scheduler*);
 
   // very simple N-class prio scheduling
-  BasicLock readyLock;
-  volatile mword readyCount; 
-  IntrusiveList<Thread> readyQueue[maxPriority];
+  Runtime::ReadyQueue<maxPriority> rq;
   volatile mword preemption;
   volatile mword resumption;
 
@@ -43,9 +41,9 @@ class Scheduler {
   Scheduler& operator=(const Scheduler&) = delete; // no assignment
 
 public:
-  Scheduler() : readyCount(0), preemption(0), resumption(0), partner(this) {}
+  Scheduler() : rq(1), preemption(0), resumption(0), partner(this) {}
   void init(Scheduler& p);
-  bool idle() { return readyCount == 0; }
+  bool idle() { return rq.empty(); }
   static void resume(Thread& t);
   bool yield();
   bool preempt();

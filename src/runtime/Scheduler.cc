@@ -26,8 +26,7 @@ void Scheduler::init(Scheduler& p) {
   idleThread->setAffinity(this)->setPriority(idlePriority);
   // use low-level routines, since runtime context might not exist
   idleThread->stackPointer = stackInit(idleThread->stackPointer, &Runtime::getDefaultMemoryContext(), (ptr_t)Runtime::idleLoop, this, nullptr, nullptr);
-  readyQueue[idlePriority].push_back(*idleThread);
-  readyCount += 1;
+  rq.push(*idleThread, idlePriority);
 }
 
 static inline void unlock() {}
@@ -43,22 +42,13 @@ template<typename... Args>
 inline bool Scheduler::switchThread(Scheduler* target, Args&... a) {
   preemption += 1;
   CHECK_LOCK_MIN(sizeof...(Args));
-  Thread* nextThread;
-  readyLock.acquire();
-  for (mword i = 0; i < ((target == this) ? idlePriority : maxPriority); i += 1) {
-    if (!readyQueue[i].empty()) {
-      nextThread = readyQueue[i].pop_front();
-      readyCount -= 1;
-      goto threadFound;
-    }
+  Thread* nextThread = rq.pop((target == this) ? idlePriority : maxPriority);
+  if (!nextThread) {
+    GENASSERT1(target == this, FmtHex(target));
+    GENASSERT0(!sizeof...(Args));
+    return false;                                 // return to current thread
   }
-  readyLock.release();
-  GENASSERT1(target == this, FmtHex(target));
-  GENASSERT0(!sizeof...(Args));
-  return false;                                   // return to current thread
 
-threadFound:
-  readyLock.release();
   resumption += 1;
   Thread* currThread = Runtime::getCurrThread();
   GENASSERTN(currThread && nextThread && nextThread != currThread, currThread, ' ', nextThread);
@@ -101,11 +91,7 @@ extern "C" void invokeThread(Thread* prevThread, Runtime::MemoryContext* ctx, fu
 
 void Scheduler::enqueue(Thread& t) {
   GENASSERT1(t.priority < maxPriority, t.priority);
-  readyLock.acquire();
-  bool wake = (readyCount == 0);
-  readyQueue[t.priority].push_back(t);
-  readyCount += 1;
-  readyLock.release();
+  bool wake = rq.push(t, t.priority);
   Runtime::debugS("Thread ", FmtHex(&t), " queued on ", FmtHex(this));
   if (wake) Runtime::wakeUp(this);
 }
@@ -129,7 +115,7 @@ bool Scheduler::preempt() {        // expect IRQs disabled, lock count inflated
 #if TESTING_ALWAYS_MIGRATE
   if (!target) target = partner;
 #else /* simple load balancing */
-  if (!target) target = (partner->readyCount + 2 < readyCount) ? partner : this;
+  if (!target) target = (partner->rq.size() + 2 < rq.size()) ? partner : this;
 #endif
   return switchThread(target);
 #endif
