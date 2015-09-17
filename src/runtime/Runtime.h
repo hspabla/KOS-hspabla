@@ -56,7 +56,7 @@ namespace Runtime {
     ReadyQueue(size_t c) : readyCount(0), cpuCount(c) {}
     bool empty() { return 0 == (volatile size_t&)readyCount; }
     size_t size() { return readyCount; }
-    inline bool push(Thread& t, mword);
+    inline bool push(Thread& t);
     inline Thread* pop(size_t maxlevel);
     inline void balanceWith(ReadyQueue& rq);
   };
@@ -89,8 +89,8 @@ namespace Runtime {
 
   typedef AddressSpace MemoryContext;
 
+  static MemoryContext& getCurrentMemoryContext() { return CurrAS(); }
   static MemoryContext& getDefaultMemoryContext() { return defaultAS; }
-  static MemoryContext& getMemoryContext()        { return CurrAS(); }
 
   static vaddr allocThreadStack(size_t ss) {
     return kernelAS.allocStack(ss);

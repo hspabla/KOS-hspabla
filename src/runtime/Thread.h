@@ -83,6 +83,7 @@ public:
   }
 
   Thread* setPriority(mword p)      { priority = p; return this; }
+  mword getPriority()               { return priority; }
   Thread* setAffinity(Scheduler* s) { affinity = (nextScheduler = s); return this; }
   Scheduler* getAffinity() const    { return affinity ? nextScheduler : nullptr; }
 

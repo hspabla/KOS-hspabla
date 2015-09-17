@@ -239,10 +239,6 @@ public:
   static bool tablefault(vaddr vma, uint64_t pff) {
     return Paging::mapTable<pagetablepl>(vma, pff, CurrFM());
   }
-
-  virtual void preThreadSwitch() {}
-  virtual void postThreadDestroy() {}
-  virtual void postThreadResume() {}
 };
 
 class KernelAddressSpace : public BaseAddressSpace {
@@ -372,6 +368,10 @@ public:
 
   void initInvalidation() { BaseAddressSpace::initInvalidation<false>(); }
   void  runInvalidation() { BaseAddressSpace::runInvalidation<false>(); }
+
+  virtual void preThreadSwitch() {}
+  virtual void postThreadResume() {}
+  virtual void postThreadDestroy() {}
 
   void print(ostream& os) const;
 };

@@ -174,6 +174,10 @@ void Process::preThreadSwitch() {
   }
 }
 
+void Process::postThreadResume() {
+  CurrUT()->mctx.restore();
+}
+
 void Process::postThreadDestroy() {
   { // make sure locks are freed and not touched after 'delete this'
     ScopedLock<> sl1(threadLock);
@@ -181,8 +185,4 @@ void Process::postThreadDestroy() {
     if (existingThreads) return;
   }
   delete this;
-}
-
-void Process::postThreadResume() {
-  CurrUT()->mctx.restore();
 }

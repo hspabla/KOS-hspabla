@@ -38,7 +38,7 @@ void Thread::destroy() {
 }
 
 void Thread::start(ptr_t func, ptr_t p1, ptr_t p2, ptr_t p3) {
-  setup(&Runtime::getMemoryContext(), func, p1, p2, p3);
+  setup(&Runtime::getCurrentMemoryContext(), func, p1, p2, p3);
   Scheduler::resume(*this);
 }
 

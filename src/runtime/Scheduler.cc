@@ -24,9 +24,9 @@ void Scheduler::init(Scheduler& p) {
   partner = &p;
   Thread* idleThread = Thread::create(idleStack);
   idleThread->setAffinity(this)->setPriority(idlePriority);
-  // use low-level routines, since runtime context might not exist
-  idleThread->stackPointer = stackInit(idleThread->stackPointer, &Runtime::getDefaultMemoryContext(), (ptr_t)Runtime::idleLoop, this, nullptr, nullptr);
-  rq.push(*idleThread, idlePriority);
+  // use setup() and push(), since runtime context might not exist yet
+  idleThread->setup(&Runtime::getDefaultMemoryContext(), (ptr_t)Runtime::idleLoop, this, nullptr, nullptr);
+  rq.push(*idleThread);
 }
 
 static inline void unlock() {}
@@ -91,7 +91,7 @@ extern "C" void invokeThread(Thread* prevThread, Runtime::MemoryContext* ctx, fu
 
 void Scheduler::enqueue(Thread& t) {
   GENASSERT1(t.priority < maxPriority, t.priority);
-  bool wake = rq.push(t, t.priority);
+  bool wake = rq.push(t);
   Runtime::debugS("Thread ", FmtHex(&t), " queued on ", FmtHex(this));
   if (wake) Runtime::wakeUp(this);
 }

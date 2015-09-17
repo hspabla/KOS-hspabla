@@ -24,8 +24,8 @@ class Scheduler;
 class Thread;
 // initialize stack and switch directly to 'func(arg1,arg2,arg3,arg4)'
 extern "C" mword stackDirect(vaddr stack, ptr_t func, ptr_t arg1, ptr_t arg2, ptr_t arg3, ptr_t arg4);
-// initialize stack for indirect invocation of 'invokeThread(prevThread,nextMemCtx,func,arg1,arg2,arg3)'
-extern "C" mword stackInit(vaddr stack, Runtime::MemoryContext* nextMemCtx, ptr_t func, ptr_t arg1, ptr_t arg2, ptr_t arg3);
+// initialize stack for indirect invocation of 'invokeThread(prevThread,memCtx,func,arg1,arg2,arg3)'
+extern "C" mword stackInit(vaddr stack, Runtime::MemoryContext* memCtx, ptr_t func, ptr_t arg1, ptr_t arg2, ptr_t arg3);
 // save stack to 'currSP', switch to stack in 'nextSP', then call 'postSwitch(currThread, target)'
 extern "C" Thread* stackSwitch(Thread* currThread, Scheduler* target, vaddr* currSP, vaddr nextSP);
 

@@ -86,8 +86,8 @@ public:
   static mword getCurrentThreadID() { return CurrUT()->idx; }
 
   virtual void preThreadSwitch();
-  virtual void postThreadDestroy();
   virtual void postThreadResume();
+  virtual void postThreadDestroy();
 };
 
 static inline Process& CurrProcess() {

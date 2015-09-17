@@ -95,9 +95,9 @@ static_assert(vaddr(KERNBASE) >= deviceEnd, "KERNBASE < deviceEnd");
 // thread stack constants
 static const size_t stackpl          = 1;
 static const size_t minimumStack     = 1 * pagesize<stackpl>();
-static const size_t defaultStack     = 4 * pagesize<stackpl>();
+static const size_t defaultStack     = 2 * pagesize<stackpl>();
 static const size_t defaultUserStack = 2 * pagesize<stackpl>();
-static const size_t idleStack        = 2 * pagesize<stackpl>();
+static const size_t idleStack        = 1 * pagesize<stackpl>();
 static const size_t faultStack       = 1 * pagesize<stackpl>();
 static const size_t stackGuardPage   = 1 * pagesize<stackpl>();
 

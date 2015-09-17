@@ -26,9 +26,9 @@
 namespace Runtime {
 
   template<size_t Levels>
-  inline bool ReadyQueue<Levels>::push(Thread& t, mword prio) {
+  inline bool ReadyQueue<Levels>::push(Thread& t) {
     ScopedLock<> sl(lock);
-    readyQueue[prio].push_back(t);
+    readyQueue[t.getPriority()].push_back(t);
     readyCount += 1;
     return (readyCount == 1);
   }
