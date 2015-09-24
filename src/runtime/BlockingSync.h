@@ -125,7 +125,7 @@ inline void Timeout::checkExpiry(mword now) {
   lock.release();
   for (auto t : fireList) {
     t->getUnblockInfo().cancelEvent(*t);
-    t->ready();
+    t->resume();
   }
 }
 
@@ -159,7 +159,7 @@ public:
         IntrusiveList<Thread>::remove(*t);
         bLock.release();
         t->getUnblockInfo().cancelTimeout();
-        t->ready();
+        t->resume();
         return true;
       }
     }

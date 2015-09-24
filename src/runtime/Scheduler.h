@@ -23,7 +23,7 @@
 class BaseScheduler : public IntrusiveList<BaseScheduler>::Link {
 protected:  // very simple N-class prio scheduling
   BasicLock lock;
-  size_t readyCount;
+  volatile size_t readyCount;
   IntrusiveList<Thread> readyQueue[maxPriority];
 
 private:
@@ -36,11 +36,12 @@ private:
 public:
   BaseScheduler() : readyCount(0), parent(this), peer(this) {}
   virtual ~BaseScheduler() {}
-  bool idle() { return readyCount == 0; }
+  bool empty() { return readyCount == 0; }
   void setPeer(BaseScheduler* p) { peer = p; }
   void setParent(BaseScheduler* p) { parent = p; }
   Thread* dequeue(size_t maxlevel);
-  void ready(Thread& t);
+  void ready(Thread& t, _friend<VirtualProcessor>);
+  void resume(Thread& t);
   virtual void wakeUp() = 0;
 };
 

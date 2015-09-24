@@ -30,13 +30,13 @@ inline void VirtualProcessor::switchThread(bool yield, Args&... a) {
   CHECK_LOCK_MIN(sizeof...(Args));
   GENASSERT0(currThread);
   Thread* nextThread = scheduler.dequeue(yield ? idlePriority : maxPriority);
-  unlock(a...);
-  epoch += 1;
+  unlock(a...); // REMEMBER: unlock early, because suspend/resume to same CPU!
   Runtime::debugS("Thread switch <", (yield ? 'Y' : 'S'), ">: ", FmtHex(currThread), " to ", FmtHex(nextThread));
   Thread* prevThread = nullptr;
   MemoryContext memctx = Runtime::preThreadSwitch();
   if (nextThread) {
-    GENASSERTN(nextThread != currThread, currThread, ' ', nextThread);
+    epoch += 1;
+    GENASSERTN(nextThread != currThread, FmtHex(currThread), ' ', FmtHex(nextThread));
     currThread->nextScheduler = &scheduler;
     prevThread = currThread;
     currThread = nextThread;
@@ -64,7 +64,7 @@ inline void VirtualProcessor::switchThread2() {
 Thread* VirtualProcessor::postYield(Thread* prevThread) {
   CHECK_LOCK_COUNT(1);
   GENASSERT1(!prevThread->finishing(), FmtHex(prevThread));
-  prevThread->ready();
+  prevThread->nextScheduler->ready(*prevThread, _friend<VirtualProcessor>());
   return nullptr;
 }
 
@@ -84,10 +84,14 @@ extern "C" void invokeThread(Thread* prevThread, MemoryContext memctx, funcvoid3
 
 void VirtualProcessor::idleLoop(VirtualProcessor* This) {
   for (;;) {
-    Runtime::spin(This->scheduler);
+    Runtime::spin(*This);
     mword e = This->epoch;
-    This->yield();
-    while (e == This->epoch) Runtime::idle(*This, This->scheduler);
+    for (;;) {
+      This->yield();
+      if (e != This->epoch) break;
+      Runtime::idle(*This);
+      if (e != This->epoch) break;
+    }
   }
   unreachable();
 }
@@ -123,7 +127,7 @@ void VirtualProcessor::start(funcvoid0_t func) {
   Thread* idleThread = Thread::create(idleStack);
   idleThread->setAffinity(&scheduler)->setPriority(idlePriority);
   idleThread->setup(Runtime::defaultAS(), (ptr_t)idleLoop, this, nullptr, nullptr);
-  idleThread->ready();
+  idleThread->resume();
   currThread = Thread::create(defaultStack);
   currThread->setAffinity(&scheduler)->direct((ptr_t)func, nullptr);
 }

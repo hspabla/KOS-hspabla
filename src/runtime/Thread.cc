@@ -39,7 +39,7 @@ void Thread::destroy() {
 
 void Thread::start(ptr_t func, ptr_t p1, ptr_t p2, ptr_t p3) {
   setup(Runtime::currentAS(), func, p1, p2, p3);
-  ready();
+  resume();
 }
 
 void Thread::cancel() {
@@ -47,6 +47,6 @@ void Thread::cancel() {
   if (__atomic_exchange_n(&state, Cancelled, __ATOMIC_ACQUIRE) == Blocked) {
     unblockInfo->cancelTimeout();
     unblockInfo->cancelEvent(*this);
-    ready();
+    resume();
   }
 }

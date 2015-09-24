@@ -89,10 +89,10 @@ public:
     return *unblockInfo;
   }
 
-  void ready() {
+  void resume() {
     GENASSERT1(state != Blocked, state);
     GENASSERT0(nextScheduler);
-    nextScheduler->ready(*this);
+    nextScheduler->resume(*this);
   }
 
   bool finishing()             { return state == Finishing; }

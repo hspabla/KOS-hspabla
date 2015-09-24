@@ -114,7 +114,7 @@ Process::~Process() {
 void Process::exec(const string& fn) {
   fileName = fn;
   UserThread* ut = setupThread((ptr_t)Process::loadAndRun, this, nullptr, nullptr);
-  ut->ready();
+  ut->resume();
 }
 
 // detach all -> cancel all
@@ -133,7 +133,7 @@ void Process::exit() {
 
 mword Process::createThread(funcvoid2_t wrapper, funcvoid1_t func, ptr_t data) {
   UserThread* ut = setupThread((ptr_t)invokeUser, (ptr_t)wrapper, (ptr_t)func, data);
-  ut->ready();
+  ut->resume();
   return ut->idx;
 }
 

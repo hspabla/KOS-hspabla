@@ -40,6 +40,7 @@ public:
   void suspend(BasicLock& lk1, BasicLock& lk2);
   void terminate() __noreturn;
   void start(funcvoid0_t func);
+  bool empty() { return scheduler.empty(); }
   Thread* getCurrThread() { return currThread; }
   Scheduler* getScheduler() { return &scheduler; }
 };

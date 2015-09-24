@@ -19,7 +19,7 @@ SUBDIRS=main user $(dir $(KERNLIBS) $(USERLIBS))
 vpath %.cc $(SOURCEDIRS)
 vpath %.S $(SOURCEDIRS)
 
-.PHONY: all userfiles Makefile.state .FORCE
+.PHONY: all iso userfiles Makefile.state .FORCE
 
 KOS=kernel.sys userfiles
 
@@ -115,8 +115,6 @@ usb: $(KOS) scripts/setup_boot.sh
 	su -c "./scripts/setup_boot.sh usb $(USBDEV) $(STAGE) kernel.sys $(RGDB) user/exec/*"
 
 ############ build targets ############
-
-.PHONY: userfiles
 
 kernel.sys: kernel.sys.debug
 	$(STRIP) $@.debug -o $@

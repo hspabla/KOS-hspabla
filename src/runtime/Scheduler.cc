@@ -38,7 +38,7 @@ Thread* BaseScheduler::dequeue(size_t maxlevel) {
   return nullptr;
 }
 
-void BaseScheduler::ready(Thread& t) {
+void BaseScheduler::ready(Thread& t, _friend<VirtualProcessor>) {
 #if TESTING_NEVER_MIGRATE
 #else /* migration enabled */
 #if TESTING_ALWAYS_MIGRATE
@@ -48,6 +48,10 @@ void BaseScheduler::ready(Thread& t) {
 #endif
   else
 #endif
+  enqueue(t);
+}
+
+void BaseScheduler::resume(Thread& t) {
   enqueue(t);
 }
 

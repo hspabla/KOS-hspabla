@@ -42,17 +42,18 @@ namespace Runtime {
 
   /**** idle loop ****/
 
-  static void spin(Scheduler& s) {
+  static void spin(VirtualProcessor& vp) {
     mword tick = Clock::now() + 10;
-    while (s.idle() && sword(tick - Clock::now()) > 0) CPU::Pause();
+    while (vp.empty() && sword(tick - Clock::now()) > 0) CPU::Pause();
   }
 
-  static void idle(VirtualProcessor& vp, Scheduler& s) {
+  static void idle(VirtualProcessor& vp) {
     if (!CurrFM().zeroMemory()) {
-      s.reportIdle(vp);
-      CPU::Halt();
+      vp.getScheduler()->reportIdle(vp);
+      if (vp.empty()) CPU::Halt();
     }
   }
+
   static void wake(VirtualProcessor& vp) { vp.sendWakeIPI(); }
 
   /**** thread switch ****/
