@@ -29,9 +29,11 @@ iso: $(ISO)
 
 ########################## run targets ##########################
 
-.PHONY: run net unet qpxe debug netdebug unetdebug gdb gdbdebug tgdb bochs vbox vboxd vgdb
+.PHONY: run qemu qpxe debug rnet rnetdebug gdb gdbdebug tgdb bochs vbox vboxd vgdb
 
-run: $(ISO)
+run: qemu
+
+qemu: $(ISO)
 	$(QEMU) $(QEMU_UNET) $(QEMU_IMG) $(QEMU_SER)
 
 qpxe: tftp
@@ -44,12 +46,12 @@ debug: $(ISO)
 
 rnet: $(ISO)
 	touch $(TMPFILES) # make sure tmp files are owned by user
-	su -c "$(CFGDIR)/qemu-ifup; $(QEMU) $(QEMU_RNET) $(QEMU_IMG) $(QEMU_SER); $(CFGDIR)/qemu-ifdown"
+	su -c "scripts/qemu-ifup.sh; $(QEMU) $(QEMU_RNET) $(QEMU_IMG) $(QEMU_SER); scripts/qemu-ifdown.sh"
 
 rnetdebug: $(ISO)
 	touch $(TMPFILES) # make sure tmp files are owned by user
 	# xterm/su: also shields qemu from Ctrl-C sent to gdb
-	xterm -e su -c "$(CFGDIR)/qemu-ifup; $(QEMU) $(QEMU_NET) $(QEMU_IMG) $(QEMU_SER) -s -S; $(CFGDIR)/qemu-ifdown" &
+	xterm -e su -c "scripts/qemu-ifup.sh; $(QEMU) $(QEMU_NET) $(QEMU_IMG) $(QEMU_SER) -s -S; scripts/qemu-ifdown.sh" &
 	$(GDB) -x $(CFGDIR)/gdbinit.qemu kernel.sys.debug
 
 gdb:
@@ -71,25 +73,17 @@ tgdb:
 bochs: $(ISO)
 	$(TOOLSDIR)/bin/bochs -f $(CFGDIR)/bochsrc -q -rc $(CFGDIR)/bochsrc.dbg
 
-vbox: $(ISO) # needs offline configuration of VirtualBox machine...
-	$(CFGDIR)/vbox-ifup
-	VirtualBox --startvm KOS --dbg 2> >(fgrep -v libpng) || true
-	$(CFGDIR)/vbox-ifdown
+vbox: $(ISO)
+	scripts/vbox-run.sh
 
-vboxd: $(ISO) # needs offline configuration of VirtualBox machine...
-	$(CFGDIR)/vbox-ifup
-	VirtualBox --startvm KOS --debug 2> >(fgrep -v libpng) || true
-	$(CFGDIR)/vbox-ifdown
+vboxd: $(ISO)
+	scripts/vbox-run.sh debug
 
 vgdb:
 	rm -f $(ISO)
 	$(MAKE) RGDB=gdb $(ISO)
 	rm -f /tmp/KOS.pipe
-	$(CFGDIR)/vbox-ifup
-	VirtualBox --startvm KOS --dbg 2> >(fgrep -v libpng) & sleep 10
-	socat -b1 TCP-LISTEN:2345,reuseaddr UNIX-CONNECT:/tmp/KOS.pipe & sleep 1
-	$(GDB) -x $(CFGDIR)/gdbinit.tcp kernel.sys.debug
-	$(CFGDIR)/vbox-ifdown
+	scripts/vbox-run.sh gdb
 
 ulib: $(USERLIBS)
 

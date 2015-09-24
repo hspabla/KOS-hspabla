@@ -51,7 +51,7 @@ To execute KOS with hardware emulation (*qemu*, *bochs*, or *VirtualBox*), run e
 
 `make run`  
 `make bochs`  
-`make vbox` -- requires *VirtualBox* setup, start with `cfg/KOS.vbox.default`
+`make vbox`
 
 When executing KOS, the system should show bootstrap debug messages and then enter a split-screen mode, where the first 20 lines are showing output from several threads running on several cores and the bottom 5 lines show characters as keys are pressed. If the *memoryhog* user application is executed (see `main/InitProcess.cc`), the system eventually stops with an "OUT OF MEMORY" error message.
 

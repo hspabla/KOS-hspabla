@@ -18,5 +18,8 @@ tgz: vclean
 test:
 	./testsuite.sh
 
+debug:
+	nice -10 $(MAKE) OPTFLAGS= -C src -j $(shell nproc || echo 1) $@
+
 .DEFAULT:
 	nice -10 $(MAKE) -C src -j $(shell nproc || echo 1) $@
