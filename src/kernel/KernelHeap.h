@@ -17,8 +17,7 @@
 #ifndef _KernelHeap_h_
 #define _KernelHeap_h_ 1
 
-#include "machine/Memory.h"
-#include "machine/SpinLock.h"
+#include "generic/basics.h"
 
 extern "C" void free(void* p);
 extern "C" void* malloc(size_t);

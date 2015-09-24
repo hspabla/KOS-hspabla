@@ -17,14 +17,9 @@
 #ifndef _AddressSpace_h_
 #define _AddressSpace_h_ 1
 
-#include "generic/IntrusiveContainers.h"
+#include "runtime/VirtualProcessor.h"
 #include "kernel/FrameManager.h"
-#include "kernel/Output.h"
 #include "machine/Paging.h"
-
-struct AddressSpaceMarker : public IntrusiveList<AddressSpaceMarker>::Link {
-  sword enterEpoch;
-};
 
 // TODO: store shared & swapped virtual memory regions in separate data
 // structures - checked during page fault (swapped) resp. unmap (shared)
@@ -201,28 +196,18 @@ allocFailed:
     }
   }
 
-  template<bool kernel>
-  void runInvalidation() {
-    ScopedLock<> sl(ulock);
-    AddressSpaceMarker* marker = kernel ? LocalProcessor::getKernASM() : LocalProcessor::getUserASM();
-    leave<true>(*marker);
-    enter(*marker);
-  }
-
-  template<bool kernel>
-  void initInvalidation() {
-    ScopedLock<> sl(ulock);
-    AddressSpaceMarker* marker = kernel ? LocalProcessor::getKernASM() : LocalProcessor::getUserASM();
-    if (markerList.empty()) {
-      enter(*marker);
-      leave<true>(*marker);
-    }
-    enter(*marker);
-  }
-
 public:
   void setup(vaddr bot, vaddr top, _friend<Machine>) {
     setup(bot, top);
+  }
+
+  void initInvalidation(AddressSpaceMarker& marker) {
+    ScopedLock<> sl(ulock);
+    if (markerList.empty()) {
+      enter(marker);
+      leave<true>(marker);
+    }
+    enter(marker);
   }
 
   template<size_t N, bool alloc=true>
@@ -259,8 +244,13 @@ public:
     else return mmap<kernelpl,false>(0, size, pma);
   }
 
-  void initInvalidation() { BaseAddressSpace::initInvalidation<true>(); }
-  void  runInvalidation() { BaseAddressSpace::runInvalidation<true>(); }
+  void runInvalidation() {
+    ScopedLock<> sl(ulock);
+    AddressSpaceMarker& marker = Runtime::thisProcessor()->kernASM;
+    leave<true>(marker);
+    enter(marker);
+  }
+
 };
 
 extern KernelAddressSpace kernelAS;
@@ -341,39 +331,41 @@ public:
     mapRegion<N,NoAlloc,User>(pma, vma, size, t);
   }
 
-  AddressSpace* switchTo() {
+  AddressSpace& switchTo() {
     KASSERT0(LocalProcessor::checkLock());
     KASSERT0(pagetable != topaddr);
-    AddressSpace* prevAS = LocalProcessor::getCurrAS();
-    KASSERT0(prevAS);
-    verifyPT(prevAS->pagetable);
-    AddressSpaceMarker* marker = LocalProcessor::getUserASM();
-    if (prevAS != this) {
-      DBG::outl(DBG::AddressSpace, "AS(", FmtHex(prevAS), ")/switchTo: ", FmtHex(this));
-      prevAS->ulock.acquire();
-      prevAS->leave<false>(*marker);
-      prevAS->ulock.release();
+    AddressSpace& prevAS = CurrAS();
+    verifyPT(prevAS.pagetable);
+    AddressSpaceMarker& marker = Runtime::thisProcessor()->userASM;
+    if (prevAS.pagetable != pagetable) {
+      DBG::outl(DBG::AddressSpace, "AS(", FmtHex(prevAS.pagetable), ")/switchTo: ", FmtHex(pagetable));
+      prevAS.ulock.acquire();
+      prevAS.leave<false>(marker);
+      prevAS.ulock.release();
       Paging::installPagetable(pagetable);
-      LocalProcessor::setCurrAS(this);
-      ulock.acquire();
-      enter(*marker);
-      ulock.release();
+      Runtime::thisProcessor()->currAS = this;
+      ScopedLock<> sl(ulock);
+      enter(marker);
     } else {
       ScopedLock<> sl(ulock);
-      leave<true>(*marker);
-      enter(*marker);
+      leave<true>(marker);
+      enter(marker);
     }
+    kernelAS.runInvalidation();
     return prevAS;
   }
-
-  void initInvalidation() { BaseAddressSpace::initInvalidation<false>(); }
-  void  runInvalidation() { BaseAddressSpace::runInvalidation<false>(); }
 
   virtual void preThreadSwitch() {}
   virtual void postThreadResume() {}
   virtual void postThreadDestroy() {}
 
   void print(ostream& os) const;
+
+  static AddressSpace& CurrAS() {
+    AddressSpace* as = Runtime::thisProcessor()->currAS;
+    KASSERT0(as);
+    return *as;
+  }
 };
 
 inline ostream& operator<<(ostream& os, const AddressSpace& as) {
@@ -381,11 +373,7 @@ inline ostream& operator<<(ostream& os, const AddressSpace& as) {
   return os;
 }
 
-static inline AddressSpace& CurrAS() {
-  AddressSpace* as = LocalProcessor::getCurrAS();
-  KASSERT0(as);
-  return *as;
-}
+static inline AddressSpace& CurrAS() { return AddressSpace::CurrAS(); }
 
 extern AddressSpace defaultAS;
 

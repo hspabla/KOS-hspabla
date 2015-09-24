@@ -21,64 +21,64 @@
 
 #include "runtime/Runtime.h"
 #include "runtime/Scheduler.h"
+#include "kernel/Clock.h"
 #include "kernel/Process.h"
+#include "machine/Machine.h"
 
 namespace Runtime {
 
-  template<size_t Levels>
-  inline bool ReadyQueue<Levels>::push(Thread& t) {
-    ScopedLock<> sl(lock);
-    readyQueue[t.getPriority()].push_back(t);
-    readyCount += 1;
-    return (readyCount == 1);
+  /**** AddressSpace-related interface ****/
+
+  static MemoryContext currentAS() { return ::CurrAS(); }
+  static MemoryContext defaultAS() { return ::defaultAS; }
+
+  static vaddr allocThreadStack(size_t ss) {
+    return kernelAS.allocStack(ss);
   }
 
-  template<size_t Levels>
-  inline Thread* ReadyQueue<Levels>::pop(size_t maxlevel) {
-    ScopedLock<> sl(lock);
-    for (mword i = 0; i < maxlevel; i += 1) {
-      if (!readyQueue[i].empty()) {
-        readyCount -= 1;
-        return readyQueue[i].pop_front();
-      }
+  static void releaseThreadStack(vaddr vma, size_t ss) {
+    kernelAS.releaseStack(vma, ss);
+  }
+
+  /**** idle loop ****/
+
+  static void spin(Scheduler& s) {
+    mword tick = Clock::now() + 10;
+    while (s.idle() && sword(tick - Clock::now()) > 0) CPU::Pause();
+  }
+
+  static void idle(VirtualProcessor& vp, Scheduler& s) {
+    if (!CurrFM().zeroMemory()) {
+      s.reportIdle(vp);
+      CPU::Halt();
     }
-    return nullptr;
   }
+  static void wake(VirtualProcessor& vp) { vp.sendWakeIPI(); }
 
-  template<size_t Levels>
-  inline void ReadyQueue<Levels>::balanceWith(ReadyQueue& rq) {
-  }
+  /**** thread switch ****/
 
-  static void idleLoop(Scheduler* s) {
-    for (;;) {
-      mword halt = s->preemption + 3;
-      while (s->rq.empty() && sword(halt - s->preemption) > 0) CPU::Pause();
-      halt = s->resumption;
-      LocalProcessor::lock(true);
-      s->preempt();
-      LocalProcessor::unlock(true);
-      while (halt == s->resumption) {
-        if (!LocalProcessor::getFrameManager()->zeroMemory()) CPU::Halt();
-      }
-    }
-    unreachable();
-  }
-
-  static AddressSpace& preThreadSwitch() {
+  static MemoryContext preThreadSwitch() {
     CurrAS().preThreadSwitch();
     return CurrAS();
   }
 
-  static void postThreadResume(Thread* prevThread, AddressSpace& nextAS) {
+  static void postThreadSwitch(Thread* prevThread, MemoryContext nextAS) {
     CHECK_LOCK_COUNT(1);
-    AddressSpace* prevAS = nextAS.switchTo();
+    AddressSpace& prevAS = nextAS.switchTo();
     nextAS.postThreadResume();
     if slowpath(prevThread) {            // cf. postSwitch() in Scheduler.cc
       prevThread->destroy();
-      prevAS->postThreadDestroy();
+      prevAS.postThreadDestroy();
     }
   }
 
+  /**** debug output routines ****/
+
+  template<typename... Args>
+  static void debugT(const Args&... a) { DBG::outl(DBG::Threads, a...); }
+
+  template<typename... Args>
+  static void debugS(const Args&... a) { DBG::outl(DBG::Scheduler, a...); }
 }
 
 #else

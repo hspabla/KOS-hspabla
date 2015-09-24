@@ -14,40 +14,34 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ******************************************************************************/
-#ifndef _Processor_h_
-#define _Processor_h_ 1
+#ifndef _HardwareProcessor_h_
+#define _HardwareProcessor_h_ 1
 
 #include "machine/asmdecl.h"
 #include "machine/asmshare.h"
+#include "machine/APIC.h"
 #include "machine/CPU.h"
 #include "machine/Descriptors.h"
-#include "machine/Memory.h" // cloneBase
+#include "machine/Memory.h" // cloneBase, zeroBase, apicAddr, ioApicAddr
 
+class VirtualProcessor;
 class Thread;
-class AddressSpace;
-class FrameManager;
-class Scheduler;
-struct AddressSpaceMarker;
 
-class Processor {
+static APIC* MappedAPIC() { return   (APIC*)apicAddr; }
+static IOAPIC* MappedIOAPIC() { return (IOAPIC*)ioApicAddr; }
+
+class HardwareProcessor {
   friend class Machine;             // init and setup routines
   friend class LocalProcessor;      // member offsets for %gs-based access
 
   /* execution context */
-  mword               lockCount;
-  Thread*             currThread;
-  AddressSpace*       currAS;
-  Scheduler*          scheduler;
-  FrameManager*       frameManager;
+  mword lockCount;
 
   /* processor information */
-  mword               index;
-  mword               apicID;
-  mword               systemID;
-
-  /* asynchronous TLB invalidation */
-  AddressSpaceMarker* userASM;
-  AddressSpaceMarker* kernASM;
+  mword index;
+  mword apicID;
+  mword systemID;
+  VirtualProcessor* lproc;
 
   /* task state segment: kernel stack for interrupts/exceptions */
   static const unsigned int nmiIST = 1;
@@ -67,50 +61,41 @@ class Processor {
   static const unsigned int maxGDT  = 7;
   SegmentDescriptor gdt[maxGDT];
 
-  void init0()                                          __section(".boot.text");
-  static void init1(paddr pml4, bool bootstrap)         __section(".boot.text");
-  void init2(InterruptDescriptor*, size_t)              __section(".boot.text");
-  void init3(funcvoid0_t)                               __section(".boot.text");
   void setupGDT(uint32_t n, uint32_t dpl, bool code)    __section(".boot.text");
   void setupTSS(uint32_t num, paddr addr)               __section(".boot.text");
 
-  Processor(const Processor&) = delete;            // no copy
-  Processor& operator=(const Processor&) = delete; // no assignment
+  HardwareProcessor(const HardwareProcessor&) = delete;            // no copy
+  HardwareProcessor& operator=(const HardwareProcessor&) = delete; // no assignment
 
-  void setup(AddressSpace& as, Scheduler& s, FrameManager& fm,
-    AddressSpaceMarker& uasm, AddressSpaceMarker& kasm,
-    mword idx, mword apic, mword sys) {
-
-    currAS = &as;
-    scheduler = &s;
-    frameManager = &fm;
-    userASM = &uasm;
-    kernASM = &kasm;
-    index = idx;
-    apicID = apic;
-    systemID = sys;
+  void setup(mword i, mword a, mword s) {
+    index = i;
+    apicID = a;
+    systemID = s;
   }
+
+protected:
+  void init0()                                          __section(".boot.text");
+  static void init1(paddr pml4, bool bootstrap)         __section(".boot.text");
+  void init2(InterruptDescriptor*, size_t)              __section(".boot.text");
+  void init3(VirtualProcessor& vp) { lproc = &vp; }
+  void init4()                                          __section(".boot.text");
 
 public:
-  Processor() : lockCount(1), currThread(nullptr), currAS(nullptr),
-    scheduler(nullptr), frameManager(nullptr),
-    index(0), apicID(0), systemID(0),
-    userASM(nullptr), kernASM(nullptr) {}
+  HardwareProcessor() : lockCount(1), index(0), apicID(0), systemID(0), lproc(nullptr) {}
 
-  static inline bool userSegment(mword cs) {
-    // check for not kernCS, because userCS (always?) has bits 0,1 set
-    return cs != (kernCS * sizeof(SegmentDescriptor));
-  }
+  void sendIPI(uint8_t vec) { MappedAPIC()->sendIPI(apicID, vec); }
+  void sendWakeIPI() { sendIPI(APIC::WakeIPI); }
+  void sendPreemptIPI() { sendIPI(APIC::PreemptIPI); }
 } __packed __caligned;
 
 class LocalProcessor {
   static void enableInterrupts() { asm volatile("sti" ::: "memory"); }
   static void disableInterrupts() { asm volatile("cli" ::: "memory"); }
   static void incLockCount() {
-    asm volatile("addq $1, %%gs:%c0" :: "i"(offsetof(Processor, lockCount)) : "cc");
+    asm volatile("addq $1, %%gs:%c0" :: "i"(offsetof(HardwareProcessor, lockCount)) : "cc");
   }
   static void decLockCount() {
-    asm volatile("subq $1, %%gs:%c0" :: "i"(offsetof(Processor, lockCount)) : "cc");
+    asm volatile("subq $1, %%gs:%c0" :: "i"(offsetof(HardwareProcessor, lockCount)) : "cc");
   }
 
   template<typename T, mword offset> static T get() {
@@ -125,8 +110,9 @@ class LocalProcessor {
 
 public:
   static void initInterrupts(bool irqs);
+
   static mword getLockCount() {
-    return get<mword, offsetof(Processor, lockCount)>();
+    return get<mword, offsetof(HardwareProcessor, lockCount)>();
   }
   static mword checkLock() {
     KASSERT1(CPU::interruptsEnabled() == (getLockCount() == 0), getLockCount());
@@ -154,38 +140,17 @@ public:
     if slowpath(getLockCount() == 0) enableInterrupts();
   }
 
-  static Thread* getCurrThread() {
-    return get<Thread*,offsetof(Processor, currThread)>();
-  }
-  static void setCurrThread(Thread* x) {
-    set<Thread*, offsetof(Processor, currThread)>(x);
-  }
-  static AddressSpace* getCurrAS() {
-    return get<AddressSpace*, offsetof(Processor, currAS)>();
-  }
-  static void setCurrAS(AddressSpace* x) {
-    set<AddressSpace*, offsetof(Processor, currAS)>(x);
-  }
-  static Scheduler* getScheduler() {
-    return get<Scheduler*, offsetof(Processor, scheduler)>();
-  }
-  static FrameManager* getFrameManager() {
-    return get<FrameManager*,offsetof(Processor, frameManager)>();
-  }
   static mword getIndex() {
-    return get<mword, offsetof(Processor, index)>();
+    return get<mword, offsetof(HardwareProcessor, index)>();
   }
   static mword getApicID() {
-    return get<mword, offsetof(Processor, apicID)>();
+    return get<mword, offsetof(HardwareProcessor, apicID)>();
   }
   static mword getSystemID() {
-    return get<mword, offsetof(Processor, systemID)>();
+    return get<mword, offsetof(HardwareProcessor, systemID)>();
   }
-  static AddressSpaceMarker* getUserASM() {
-    return get<AddressSpaceMarker*,offsetof(Processor, userASM)>();
-  }
-  static AddressSpaceMarker* getKernASM() {
-    return get<AddressSpaceMarker*,offsetof(Processor, kernASM)>();
+  static VirtualProcessor* self() {
+    return get<VirtualProcessor*, offsetof(HardwareProcessor, lproc)>();
   }
   static vaddr getCloneAddr() {
     return cloneBase + pagetableps * getIndex();
@@ -193,16 +158,11 @@ public:
   static vaddr getZeroAddr() {
     return zeroBase + kernelps * getIndex();
   }
-  static void setKernelStack() {
-    const mword o = offsetof(Processor, tss) + offsetof(TaskStateSegment, rsp);
+  static void setKernelStack(Thread* currThread) {
+    const mword o = offsetof(HardwareProcessor, tss) + offsetof(TaskStateSegment, rsp);
     static_assert(o == TSSRSP, "TSSRSP");
-    set<Thread*, o>(getCurrThread());            // Thread* = top of stack
+    set<Thread*, o>(currThread);            // Thread* = top of stack
   }
 };
 
-class APIC;
-static APIC* MappedAPIC() { return   (APIC*)apicAddr; }
-class IOAPIC;
-static IOAPIC* MappedIOAPIC() { return (IOAPIC*)ioApicAddr; }
-
-#endif /* Processor_h_ */
+#endif /* HardwareProcessor_h_ */

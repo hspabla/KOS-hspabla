@@ -16,11 +16,10 @@
 ******************************************************************************/
 #include "runtime/Scheduler.h"
 #include "runtime/Thread.h"
+#include "runtime/VirtualProcessor.h"
 #include "kernel/KernelHeap.h"
 #include "kernel/Output.h"
-#include "machine/APIC.h"
 #include "machine/Machine.h"
-#include "machine/Processor.h"
 #include "devices/Serial.h"
 
 #include <cstring>
@@ -733,13 +732,13 @@ static volatile bool allstop = false;
 
 // pin thread to core during 'step' and 'next'
 static Thread* savedThread = nullptr;
-static Scheduler* savedAffinity = nullptr;
+static BaseScheduler* savedAffinity = nullptr;
 
 static void setGdbAffinity() {
   if (!savedThread) {
-    savedThread = LocalProcessor::getCurrThread();
+    savedThread = CurrThread();
     savedAffinity = savedThread->getAffinity();
-    savedThread->setAffinity(LocalProcessor::getScheduler());
+    savedThread->setAffinity(Runtime::thisProcessor()->getScheduler());
     DBG::outl(DBG::GDBDebug, "GDB(", cTID(),") set GDB affinity");
   }
 }
@@ -807,7 +806,7 @@ extern "C" void handle_exception (int64_t vec) {
     allstop = true;
     for (mword i = 0; i < Machine::getProcessorCount(); i++) {
       if (cpus[i].state == GdbCpu::Running) {
-        Machine::sendIPI(i, APIC::StopIPI);
+        Machine::getProcessor(i).sendIPI(APIC::StopIPI);
         while (cpus[i].state != GdbCpu::Stopped) CPU::Pause();
       }
     }

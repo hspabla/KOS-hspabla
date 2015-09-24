@@ -20,36 +20,43 @@
 #include "generic/IntrusiveContainers.h"
 #include "runtime/Runtime.h"
 
-class Thread;
+class BaseScheduler : public IntrusiveList<BaseScheduler>::Link {
+protected:  // very simple N-class prio scheduling
+  BasicLock lock;
+  size_t readyCount;
+  IntrusiveList<Thread> readyQueue[maxPriority];
 
-class Scheduler {
-  friend void Runtime::idleLoop(Scheduler*);
-
-  // very simple N-class prio scheduling
-  Runtime::ReadyQueue<maxPriority> rq;
-  volatile mword preemption;
-  volatile mword resumption;
-
-  Scheduler* partner;
-
-  template<typename... Args>
-  inline bool switchThread(Scheduler* target, Args&... a);
-
+private:
+  BaseScheduler* parent;
+  BaseScheduler* peer;
+  BaseScheduler(const BaseScheduler&) = delete;            // no copy
+  BaseScheduler& operator=(const BaseScheduler&) = delete; // no assignment
   inline void enqueue(Thread& t);
 
-  Scheduler(const Scheduler&) = delete;            // no copy
-  Scheduler& operator=(const Scheduler&) = delete; // no assignment
-
 public:
-  Scheduler() : rq(1), preemption(0), resumption(0), partner(this) {}
-  void init(Scheduler& p);
-  bool idle() { return rq.empty(); }
-  static void resume(Thread& t);
-  bool yield();
-  bool preempt();
-  void suspend(BasicLock& lk);
-  void suspend(BasicLock& lk1, BasicLock& lk2);
-  void terminate() __noreturn;
+  BaseScheduler() : readyCount(0), parent(this), peer(this) {}
+  virtual ~BaseScheduler() {}
+  bool idle() { return readyCount == 0; }
+  void setPeer(BaseScheduler* p) { peer = p; }
+  void setParent(BaseScheduler* p) { parent = p; }
+  Thread* dequeue(size_t maxlevel);
+  void ready(Thread& t);
+  virtual void wakeUp() = 0;
+};
+
+class Scheduler : public BaseScheduler {
+  VirtualProcessor* idler;
+public:
+  Scheduler() : idler(nullptr) {}
+  void reportIdle(VirtualProcessor& vp) { AutoLock al(lock); idler = &vp; }
+  virtual void wakeUp();
+};
+
+class GroupScheduler : public BaseScheduler {
+  IntrusiveList<BaseScheduler> idleQueue;
+public:
+  void reportIdle(BaseScheduler& bs) {}
+  virtual void wakeUp();
 };
 
 #endif /* _Scheduler_h_ */

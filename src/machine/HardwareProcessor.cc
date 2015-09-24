@@ -14,20 +14,17 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ******************************************************************************/
-#include "runtime/Scheduler.h"
-#include "runtime/Thread.h"
 #include "kernel/AddressSpace.h"
 #include "kernel/Output.h"
-#include "machine/APIC.h"   
-#include "machine/Processor.h"
-#include "machine/Paging.h"
+#include "machine/APIC.h"
+#include "machine/HardwareProcessor.h"
 
-void Processor::init0() {
+void HardwareProcessor::init0() {
   MSR::write(MSR::GS_BASE, mword(this)); // store 'this' in gs
   MSR::write(MSR::KERNEL_GS_BASE, 0);    // later: store user value in shadow gs
 }
 
-void Processor::init1(paddr pml4, bool output) {
+void HardwareProcessor::init1(paddr pml4, bool output) {
   DBG::Level dl = output ? DBG::Basic : DBG::MaxLevel;
   DBG::outl(dl, "*********** CPU INFO ***********");
   DBG::out1(dl, "checking BSP capabilities:");
@@ -56,7 +53,7 @@ void Processor::init1(paddr pml4, bool output) {
   if (pml4 != topaddr) CPU::writeCR3(pml4);          // install page tables
 }
 
-void Processor::init2(InterruptDescriptor* idtTable, size_t idtSize) {
+void HardwareProcessor::init2(InterruptDescriptor* idtTable, size_t idtSize) {
   memset(gdt, 0, sizeof(gdt)); // set up GDT
   setupGDT(kernCS, 0, true);
   setupGDT(kernDS, 0, false);  // DPL *mostly* ignored for data selectors (except for iret)
@@ -69,7 +66,7 @@ void Processor::init2(InterruptDescriptor* idtTable, size_t idtSize) {
   loadIDT(idtTable, idtSize);  // install interrupt table
 }
 
-void Processor::init3(funcvoid0_t func) {
+void HardwareProcessor::init4() {
   MSR::enableSYSCALL();                               // enable syscall/sysret
   // top  16 bits: index 2 = userDS - 1 = userCS - 2; * 8 (selector size) + 3 (CPL); userDS follows this index, followed by userCS
   // next 16 bits: index 1 = kernCS     = kernDS - 1; * 8 (selector size) + 0 (CPL); kernCS is at   this index, followed by kernDS
@@ -77,10 +74,6 @@ void Processor::init3(funcvoid0_t func) {
   MSR::write(MSR::SYSCALL_LSTAR, mword(syscall_wrapper));
   MSR::write(MSR::SYSCALL_CSTAR, 0x0);
   MSR::write(MSR::SYSCALL_SFMASK, CPU::RFlags::IF()); // disable interrupts during syscall
-
-  // init async TLB invalidation on this processor
-  kernelAS.initInvalidation();
-  defaultAS.initInvalidation();
 
   // set up TSS: rsp[0] is set to per-thread kernel stack before sysretq
   memset(&tss, 0, sizeof(TaskStateSegment));
@@ -91,13 +84,9 @@ void Processor::init3(funcvoid0_t func) {
   tss.ist[dbfIST-1] = fstack;
   tss.ist[stfIST-1] = fstack;
   DBG::outl(DBG::Basic, "Fault Stack for ", index, " at ", FmtHex(fstack));
-
-  // set affinity, so init thread is not moved around during bootstrap
-  currThread = Thread::create(defaultStack);
-  currThread->setAffinity(scheduler)->direct((ptr_t)func, nullptr);
 }
 
-void Processor::setupGDT(unsigned int number, unsigned int dpl, bool code) {
+void HardwareProcessor::setupGDT(unsigned int number, unsigned int dpl, bool code) {
   KASSERT1(number < maxGDT, number);
   KASSERT1(dpl < 4, dpl);
   gdt[number].RW = 1;
@@ -108,7 +97,7 @@ void Processor::setupGDT(unsigned int number, unsigned int dpl, bool code) {
   gdt[number].L = 1;
 }
 
-void Processor::setupTSS(unsigned int number, paddr address) {
+void HardwareProcessor::setupTSS(unsigned int number, paddr address) {
   SystemDescriptor* tssDesc = (SystemDescriptor*)&gdt[number];
   tssDesc->Limit00 = 0xffff;
   tssDesc->Base00 = (address & 0x000000000000FFFF);

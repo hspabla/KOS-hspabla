@@ -18,22 +18,30 @@
 #define _Thread_h_ 1
 
 #include "generic/IntrusiveContainers.h" 
-#include "runtime/Runtime.h"
 #include "runtime/Stack.h"
+#include "runtime/VirtualProcessor.h"
 
-class Scheduler;
+class BaseScheduler;
 class UnblockInfo;
 
+class Thread;
+
+static inline Thread* CurrThread() {
+  Thread* t = Runtime::thisProcessor()->getCurrThread();
+  GENASSERT0(t);
+  return t;
+}
+
 class Thread : public IntrusiveList<Thread>::Link {
-  friend class Scheduler;   // Scheduler accesses many internals
+  friend class VirtualProcessor; // stackPointer, nextScheduler
 
-  vaddr stackPointer;       // holds stack pointer while thread inactive
-  vaddr stackBottom;        // bottom of allocated memory for thread/stack
-  size_t stackSize;         // size of allocated memory
+  vaddr stackPointer;            // holds stack pointer while thread inactive
+  vaddr stackBottom;             // bottom of allocated memory for thread/stack
+  size_t stackSize;              // size of allocated memory
 
-  mword priority;           // scheduling priority
-  bool affinity;            // stick with scheduler
-  Scheduler* nextScheduler; // resume on same core (for now)
+  BaseScheduler* nextScheduler;  // default: resume on same scheduler
+  bool affinity;                 // stick with scheduler
+  mword priority;                // scheduling priority
 
   Runtime::ThreadStats stats;
 
@@ -46,8 +54,8 @@ protected:
 
   Thread(vaddr sb, size_t ss) :
     stackPointer(vaddr(this)), stackBottom(sb), stackSize(ss),
-    priority(defPriority), affinity(false), nextScheduler(nullptr),
-    state(Running), unblockInfo(nullptr) {}
+    nextScheduler(Runtime::thisProcessor()->getScheduler()), affinity(false),
+    priority(defPriority), state(Running), unblockInfo(nullptr) {}
 
 public:
   static Thread* create(size_t ss);
@@ -56,15 +64,14 @@ public:
   void direct(ptr_t func, ptr_t p1 = nullptr, ptr_t p2 = nullptr, ptr_t p3 = nullptr, ptr_t p4 = nullptr) {
     stackDirect(stackPointer, func, p1, p2, p3, p4);
   }
-  void setup(Runtime::MemoryContext* ctx, ptr_t func, ptr_t p1 = nullptr, ptr_t p2 = nullptr, ptr_t p3 = nullptr) {
+  void setup(MemoryContext ctx, ptr_t func, ptr_t p1 = nullptr, ptr_t p2 = nullptr, ptr_t p3 = nullptr) {
     stackPointer = stackInit(stackPointer, ctx, func, p1, p2, p3);
   }
   void start(ptr_t func, ptr_t p1 = nullptr, ptr_t p2 = nullptr, ptr_t p3 = nullptr);
   void cancel();
-  bool finishing() { return state == Finishing; }
 
   bool block(UnblockInfo* ubi) {
-    GENASSERT1(this == Runtime::getCurrThread(), Runtime::getCurrThread());
+    GENASSERT1(this == CurrThread(), CurrThread());
     GENASSERT1(state != Blocked, state);
     unblockInfo = ubi;
     State expected = Running;
@@ -72,7 +79,7 @@ public:
   }
 
   bool unblock() {
-    GENASSERT1(this != Runtime::getCurrThread(), Runtime::getCurrThread());
+    GENASSERT1(this != CurrThread(), CurrThread());
     State expected = Blocked;
     return __atomic_compare_exchange_n(&state, &expected, Running, 0, __ATOMIC_RELAXED, __ATOMIC_RELAXED);
   }
@@ -82,10 +89,22 @@ public:
     return *unblockInfo;
   }
 
-  Thread* setPriority(mword p)      { priority = p; return this; }
-  mword getPriority()               { return priority; }
-  Thread* setAffinity(Scheduler* s) { affinity = (nextScheduler = s); return this; }
-  Scheduler* getAffinity() const    { return affinity ? nextScheduler : nullptr; }
+  void ready() {
+    GENASSERT1(state != Blocked, state);
+    GENASSERT0(nextScheduler);
+    nextScheduler->ready(*this);
+  }
+
+  bool finishing()             { return state == Finishing; }
+
+  Thread* setPriority(mword p) { priority = p; return this; }
+  mword getPriority() const    { return priority; }
+
+  BaseScheduler* getNextScheduler() const { return nextScheduler; }
+
+  Thread* setAffinity(BaseScheduler* s)   { affinity = (nextScheduler = s); return this; }
+  BaseScheduler* getAffinity() const      { return affinity ? nextScheduler : nullptr; }
+  bool hasAffinity() const                { return affinity; }
 
   const Runtime::ThreadStats& getStats() const { return stats; }
 };

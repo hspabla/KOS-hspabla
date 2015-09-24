@@ -47,11 +47,11 @@ protected:
   decltype(Timeout::queue)::iterator titer;
 public:
   void suspend(mword timeout) {
-    Thread* thr = Runtime::getCurrThread();
+    Thread* thr = CurrThread();
     Timeout::lock.acquire();
     if (thr->block(this)) {
       titer = Timeout::queue.insert( {timeout, thr} ); // set up timeout
-      Runtime::getScheduler()->suspend(Timeout::lock);
+      Runtime::thisProcessor()->suspend(Timeout::lock);
     } else {
       Timeout::lock.release();
     }
@@ -71,10 +71,10 @@ public:
     GENASSERT0(bl.check());
   }
   bool suspend(IntrusiveList<Thread>& queue) {
-    Thread* thr = Runtime::getCurrThread();
+    Thread* thr = CurrThread();
     if (thr->block(this)) {
       queue.push_back(*thr);                           // set up block
-      Runtime::getScheduler()->suspend(bLock);
+      Runtime::thisProcessor()->suspend(bLock);
       return !timedOut;
     }
     bLock.release();
@@ -91,12 +91,12 @@ class TimeoutEventInfo : public TimeoutInfo, public EventInfo {
 public:
   TimeoutEventInfo(BasicLock& bl) : EventInfo(bl) {}
   bool suspend(IntrusiveList<Thread>& queue, mword timeout) {
-    Thread* thr = Runtime::getCurrThread();
+    Thread* thr = CurrThread();
     Timeout::lock.acquire();
     if (thr->block(this)) {
       queue.push_back(*thr);                           // set up block
       titer = Timeout::queue.insert( {timeout, thr} ); // set up timeout
-      Runtime::getScheduler()->suspend(bLock, Timeout::lock);
+      Runtime::thisProcessor()->suspend(bLock, Timeout::lock);
       return !timedOut;
     }
     Timeout::lock.release();
@@ -125,7 +125,7 @@ inline void Timeout::checkExpiry(mword now) {
   lock.release();
   for (auto t : fireList) {
     t->getUnblockInfo().cancelEvent(*t);
-    Scheduler::resume(*t);
+    t->ready();
   }
 }
 
@@ -159,7 +159,7 @@ public:
         IntrusiveList<Thread>::remove(*t);
         bLock.release();
         t->getUnblockInfo().cancelTimeout();
-        Scheduler::resume(*t);
+        t->ready();
         return true;
       }
     }
@@ -176,12 +176,12 @@ protected:
   BlockingQueue bq;
 
   bool internalAcquire(bool ownerLock, mword timeout = limit<mword>()) {
-    if slowpath(owner == Runtime::getCurrThread()) {
+    if slowpath(owner == CurrThread()) {
       GENASSERT1(ownerLock, FmtHex(owner));
     } else {
       lock.acquire();
       if slowpath(owner != nullptr) return bq.block(lock, timeout);
-      owner = Runtime::getCurrThread();
+      owner = CurrThread();
       lock.release();
     }
     return true;
@@ -206,7 +206,7 @@ public:
   }
 
   void release() {
-    GENASSERT1(owner == Runtime::getCurrThread(), FmtHex(owner));
+    GENASSERT1(owner == CurrThread(), FmtHex(owner));
     lock.acquire();
     internalRelease();
   }
@@ -227,7 +227,7 @@ public:
   }
 
   mword release() {
-    GENASSERT1(owner == Runtime::getCurrThread(), FmtHex(owner));
+    GENASSERT1(owner == CurrThread(), FmtHex(owner));
     lock.acquire();
     counter -= 1;
     mword retval = counter;

@@ -20,7 +20,7 @@
 #include "kernel/Output.h"
 #include "kernel/Process.h"
 #include "world/Access.h"
-#include "machine/Processor.h"
+#include "machine/HardwareProcessor.h"
 
 #include "include/syscalls.h"
 #include "include/pthread.h"

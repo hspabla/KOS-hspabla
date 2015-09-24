@@ -18,7 +18,7 @@
 #define _FrameManager_h_ 1
 
 #include "generic/Bitmap.h"
-#include "generic/IntrusiveContainers.h"
+#include "runtime/VirtualProcessor.h"
 #include "kernel/KernelHeap.h"
 #include "kernel/Output.h"
 
@@ -147,12 +147,14 @@ public:
   void zeroInternal(); // drops the lock
 
   paddr allocRegion( size_t& size, paddr align, paddr lim );
+
+  static FrameManager& CurrFM() {
+    FrameManager* fm = Runtime::thisProcessor()->frameManager;
+    KASSERT0(fm);
+    return *fm;
+  }
 };
 
-static inline FrameManager& CurrFM() {
-  FrameManager* fm = LocalProcessor::getFrameManager();
-  KASSERT0(fm);
-  return *fm;
-}
+static inline FrameManager& CurrFM() { return FrameManager::CurrFM(); }
 
 #endif /* _FrameManager_h_ */

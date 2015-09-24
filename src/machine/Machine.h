@@ -18,6 +18,7 @@
 #define _Machine_h_ 1
 
 #include "generic/basics.h"
+#include "runtime/VirtualProcessor.h"
 
 class Scheduler;
 class Thread;
@@ -25,6 +26,7 @@ class Thread;
 class Machine : public NoObject {
   friend void initGdb(mword); // initGdb calls setupIDT to redirect exception handlers
 
+  static VirtualProcessor* processorTable;
   static mword processorCount;
 
   static void setupIDT(uint32_t, paddr, uint32_t = 0)  __section(".boot.text");
@@ -43,14 +45,13 @@ public:
   static void bootMain();
 
   static mword getProcessorCount() { return processorCount; }
-  static void setAffinity(Thread& t, mword idx);
-  static void sendIPI(mword idx, uint8_t vec);
-  static void sendWakeIPI(Scheduler* scheduler);
-  static void rrPreemptIPI(mword tick);
+  static VirtualProcessor& getProcessor(mword idx) { return processorTable[idx]; }
 
   static void registerIrqSync(mword irq, mword vec);
   static void registerIrqAsync(mword irq, funcvoid1_t handler, ptr_t ctx);
   static void deregisterIrqAsync(mword irq, funcvoid1_t handler);
+
+  static constexpr inline mword kernCS();
 };
 
 void Breakpoint2(vaddr ia = 0) __ninline;

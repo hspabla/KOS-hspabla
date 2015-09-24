@@ -36,9 +36,9 @@ stackDirect:                # stack pointer, func, arg1, arg2, arg3, arg4
 
 .align 8
 .globl stackInit
-stackInit:                  # stack, memCtx, func, arg1, arg2, arg3 -> new stack
+stackInit:                  # stack, as, func, arg1, arg2, arg3 -> new stack
 	movq $0,   -64(%rdi)      # indirectly set %rbp to 0
-	movq %rsi, -56(%rdi)      # store 'memCtx' for stub function (via %rbx)
+	movq %rsi, -56(%rdi)      # store 'as' for stub function (via %rbx)
 	movq %rdx, -48(%rdi)      # store 'func' for stub function (via %r12)
 	movq %rcx, -40(%rdi)      # store 'arg1' for stub function (via %r13)
 	movq %r8,  -32(%rdi)      # store 'arg2' for stub function (via %r14)
@@ -52,7 +52,7 @@ stackInit:                  # stack, memCtx, func, arg1, arg2, arg3 -> new stack
 .align 8
 stubInit:                   # stub needed to pass arguments to 'invokeThread'
 	movq %rax, %rdi           # 'prevThread' as returned by 'postSwitch'
-	movq %rbx, %rsi           # 'memCtx'
+	movq %rbx, %rsi           # 'as'
 	movq %r12, %rdx           # 'func'
 	movq %r13, %rcx           # 'arg1'
 	movq %r14, %r8            # 'arg2'
@@ -64,12 +64,12 @@ stubInit:                   # stub needed to pass arguments to 'invokeThread'
 
 .align 8
 .globl stackSwitch
-stackSwitch:                # (currT, target, &currSP, nextSP)
+stackSwitch:                # (currT, postFunc, &currSP, nextSP)
 	STACK_PUSH                # save register context
 	mov %rsp, (%rdx)          # save current stack pointer
 	mov %rcx, %rsp            # load next stack pointer
 	STACK_POP                 # restore register context
-	jmp postSwitch            # %rdi/%rsi set -> return directly from postSwitch
+	jmp *%rsi                 # %rdi set -> return directly from postFunc
 
 #else
 #error unsupported architecture: only __x86_64__ supported at this time

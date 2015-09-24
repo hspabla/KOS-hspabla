@@ -424,7 +424,7 @@ ACPI_STATUS AcpiOsRemoveInterruptHandler(UINT32 InterruptNumber,
 }
 
 ACPI_THREAD_ID AcpiOsGetThreadId(void) {
-  return (ACPI_THREAD_ID)LocalProcessor::getCurrThread();
+  return (ACPI_THREAD_ID)CurrThread();
 }
 
 ACPI_STATUS AcpiOsExecute(ACPI_EXECUTE_TYPE Type,

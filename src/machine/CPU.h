@@ -261,11 +261,11 @@ namespace CPU {
     return ((rf ^ rf2) & RFlags::ID()) == 0;
   }
 
-  class MachContext {
+  class ExtraContext {
     mword fs;
     mword gs;
   public:
-    MachContext() : fs(0), gs(0) {}
+    ExtraContext() : fs(0), gs(0) {}
     void save() {
       fs = MSR::read(MSR::FS_BASE);
       gs = MSR::read(MSR::KERNEL_GS_BASE);
@@ -282,7 +282,7 @@ namespace CPU {
 
 // TODO: handle unsupported CPUID requests...
 class CPUID : public NoObject {
-  friend class Processor;
+  friend class HardwareProcessor;
 
   struct RetCode {
     uint32_t a;

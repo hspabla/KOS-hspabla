@@ -19,17 +19,18 @@
 
 #if defined(__KOS__)
 
-#include "kernel/AddressSpace.h"
-#include "kernel/Output.h"
-#include "machine/Machine.h"
-#include "machine/Processor.h"
-#include "machine/SpinLock.h"
+#include "generic/basics.h"
+#include "kernel/SpinLock.h"
 
 typedef SpinLock BasicLock;
 typedef ScopedLock<BasicLock> AutoLock;
 
+class AddressSpace;
 class Scheduler;
 class Thread;
+class VirtualProcessor;
+
+typedef AddressSpace& MemoryContext;
 
 static const mword  topPriority = 0;
 static const mword  defPriority = 1;
@@ -43,23 +44,6 @@ static const mword  maxPriority = 3;
   KASSERT1(LocalProcessor::checkLock() == (x), LocalProcessor::getLockCount())
 
 namespace Runtime {
-
-  /**** platform-specific ready queue ****/
-
-  template<size_t Levels>
-  class ReadyQueue {
-    BasicLock lock;
-    size_t readyCount;
-    size_t cpuCount;
-    IntrusiveList<Thread> readyQueue[Levels];
-  public:
-    ReadyQueue(size_t c) : readyCount(0), cpuCount(c) {}
-    bool empty() { return 0 == (volatile size_t&)readyCount; }
-    size_t size() { return readyCount; }
-    inline bool push(Thread& t);
-    inline Thread* pop(size_t maxlevel);
-    inline void balanceWith(ReadyQueue& rq);
-  };
 
   /**** additional thread fields that depend on runtime system ****/
 
@@ -85,43 +69,18 @@ namespace Runtime {
 
   static void EnablePreemption() { LocalProcessor::unlock(true); } // full unlock
 
-  /**** AddressSpace-related interface ****/
-
-  typedef AddressSpace MemoryContext;
-
-  static MemoryContext& getCurrentMemoryContext() { return CurrAS(); }
-  static MemoryContext& getDefaultMemoryContext() { return defaultAS; }
-
-  static vaddr allocThreadStack(size_t ss) {
-    return kernelAS.allocStack(ss);
-  }
-
-  static void releaseThreadStack(vaddr vma, size_t ss) {
-    kernelAS.releaseStack(vma, ss);
-  }
-
   /**** obtain/use context information ****/
 
-  static Thread* getCurrThread() { return LocalProcessor::getCurrThread(); }
-  static void setCurrThread(Thread* t) { LocalProcessor::setCurrThread(t); }
-  static Scheduler* getScheduler() { return LocalProcessor::getScheduler(); }
-  static void wakeUp(Scheduler* s) { Machine::sendWakeIPI(s); }
+  static VirtualProcessor* thisProcessor() { return LocalProcessor::self(); }
 
-  /**** helper routines for scheduler ****/
-
-  static void idleLoop(Scheduler*);
-
-  /**** debug output routines ****/
-
-  template<typename... Args>
-  static void debugT(const Args&... a) { DBG::outl(DBG::Threads, a...); }
-
-  template<typename... Args>
-  static void debugS(const Args&... a) { DBG::outl(DBG::Scheduler, a...); }
 }
 
 #else
 #error undefined platform: only __KOS__ supported at this time
+
+class SystemProcessor{};
+class MemoryContext{};
+
 #endif
 
 #endif /* _Runtime_h_ */

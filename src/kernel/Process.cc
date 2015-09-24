@@ -95,7 +95,7 @@ inline Process::UserThread* Process::setupThread(ptr_t invoke, ptr_t wrapper, pt
   existingThreads += 1;
   activeThreads += 1;
   DBG::outl(DBG::Threads, "UserThread setup: ", FmtHex(ut), '/', ut->idx);
-  ut->setup(this, invoke, wrapper, func, data);
+  ut->setup(*this, invoke, wrapper, func, data);
   threadLock.release();
   return ut;
 }
@@ -114,7 +114,7 @@ Process::~Process() {
 void Process::exec(const string& fn) {
   fileName = fn;
   UserThread* ut = setupThread((ptr_t)Process::loadAndRun, this, nullptr, nullptr);
-  Scheduler::resume(*ut);
+  ut->ready();
 }
 
 // detach all -> cancel all
@@ -128,12 +128,12 @@ void Process::exit() {
     }
   }
   threadLock.release();
-  LocalProcessor::getScheduler()->terminate();
+  Runtime::thisProcessor()->terminate();
 }
 
 mword Process::createThread(funcvoid2_t wrapper, funcvoid1_t func, ptr_t data) {
   UserThread* ut = setupThread((ptr_t)invokeUser, (ptr_t)wrapper, (ptr_t)func, data);
-  Scheduler::resume(*ut);
+  ut->ready();
   return ut->idx;
 }
 
@@ -145,7 +145,7 @@ void Process::exitThread(ptr_t result) {
   activeThreads -= 1;
   if (activeThreads) ut->post(result, threadLock);
   else threadLock.release();
-  LocalProcessor::getScheduler()->terminate();
+  Runtime::thisProcessor()->terminate();
 }
 
 int Process::joinThread(mword idx, ptr_t& result) {
@@ -170,12 +170,12 @@ void Process::preThreadSwitch() {
     threadStore.remove(ut->idx);
     if (threadStore.empty()) clean();
   } else {
-    ut->mctx.save();
+    ut->ectx.save();
   }
 }
 
 void Process::postThreadResume() {
-  CurrUT()->mctx.restore();
+  CurrUT()->ectx.restore();
 }
 
 void Process::postThreadDestroy() {

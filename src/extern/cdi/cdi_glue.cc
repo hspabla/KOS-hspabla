@@ -16,10 +16,8 @@
 ******************************************************************************/
 #include "runtime/BlockingSync.h"
 #include "kernel/AddressSpace.h"
-#include "kernel/Output.h"
 #include "machine/Machine.h"
-#include "machine/Paging.h"
-#include "machine/Processor.h"
+#include "machine/HardwareProcessor.h"
 #include "devices/PCI.h"
 
 #include <cstdarg>

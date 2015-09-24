@@ -29,7 +29,7 @@ class Process : public AddressSpace {
     mword idx;
     vaddr stackAddr;          // bottom of allocated memory for thread/stack
     size_t stackSize;         // size of allocated memory
-    CPU::MachContext mctx;    // fs/gs registers
+    CPU::ExtraContext ectx;  // fs/gs registers
     UserThread(vaddr ksb, size_t kss) : JoinableThread(ksb, kss) {}
     static inline UserThread* create(size_t kss = defaultStack) {
       vaddr mem = kernelAS.allocStack(kss);
@@ -67,7 +67,7 @@ public:
   virtual ~Process();
 
   static UserThread* CurrUT() {
-    UserThread* ut = reinterpret_cast<UserThread*>(LocalProcessor::getCurrThread());
+    UserThread* ut = reinterpret_cast<UserThread*>(CurrThread());
     KASSERT0(ut);
     return ut;
   }

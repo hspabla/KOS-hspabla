@@ -60,7 +60,7 @@ void kosMain() {
 #endif
 #if TESTING_KEYCODE_LOOP
   Thread* t = Thread::create()->setPriority(topPriority);
-  Machine::setAffinity(*t, 0);
+  t->setAffinity(Machine::getProcessor(0)->getScheduler());
   t->start((ptr_t)keybLoop);
 #endif
   Thread::create()->start((ptr_t)UserMain);

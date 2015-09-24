@@ -16,126 +16,47 @@
 ******************************************************************************/
 #include "runtime/RuntimeImpl.h"
 #include "runtime/Scheduler.h"
-#include "runtime/Stack.h"
-#include "runtime/Thread.h"
-#include "kernel/Output.h"
+#include "runtime/VirtualProcessor.h"
 
-void Scheduler::init(Scheduler& p) {
-  partner = &p;
-  Thread* idleThread = Thread::create(idleStack);
-  idleThread->setAffinity(this)->setPriority(idlePriority);
-  // use setup() and push(), since runtime context might not exist yet
-  idleThread->setup(&Runtime::getDefaultMemoryContext(), (ptr_t)Runtime::idleLoop, this, nullptr, nullptr);
-  rq.push(*idleThread);
+inline void BaseScheduler::enqueue(Thread& t) {
+  Runtime::debugS("Thread ", FmtHex(&t), " queueing on ", FmtHex(this));
+  GENASSERT1(t.getPriority() < maxPriority, t.getPriority());
+  AutoLock al(lock);
+  readyCount += 1;
+  readyQueue[t.getPriority()].push_back(t);
+  if (readyCount == 1) wakeUp();
 }
 
-static inline void unlock() {}
-
-template<typename... Args>
-static inline void unlock(BasicLock &l, Args&... a) {
-  l.release();
-  unlock(a...);
-}
-
-// very simple N-class prio scheduling!
-template<typename... Args>
-inline bool Scheduler::switchThread(Scheduler* target, Args&... a) {
-  preemption += 1;
-  CHECK_LOCK_MIN(sizeof...(Args));
-  Thread* nextThread = rq.pop((target == this) ? idlePriority : maxPriority);
-  if (!nextThread) {
-    GENASSERT1(target == this, FmtHex(target));
-    GENASSERT0(!sizeof...(Args));
-    return false;                                 // return to current thread
+Thread* BaseScheduler::dequeue(size_t maxlevel) {
+  AutoLock al(lock);
+  for (mword i = 0; i < maxlevel; i += 1) {
+    if (!readyQueue[i].empty()) {
+      readyCount -= 1;
+      return readyQueue[i].pop_front();
+    }
   }
-
-  resumption += 1;
-  Thread* currThread = Runtime::getCurrThread();
-  GENASSERTN(currThread && nextThread && nextThread != currThread, currThread, ' ', nextThread);
-
-  if (target) currThread->nextScheduler = target; // yield/preempt to given processor
-  else currThread->nextScheduler = this;          // suspend/resume to same processor
-  unlock(a...);                                   // ...thus can unlock now
-  CHECK_LOCK_COUNT(1);
-  Runtime::debugS("Thread switch <", (target ? 'Y' : 'S'), ">: ", FmtHex(currThread), " to ", FmtHex(nextThread));
-
-  Runtime::MemoryContext& ctx = Runtime::preThreadSwitch();
-  Runtime::setCurrThread(nextThread);
-  Thread* prevThread = stackSwitch(currThread, target, &currThread->stackPointer, nextThread->stackPointer);
-  // REMEMBER: Thread might have migrated from other processor, so 'this'
-  //           might not be currThread's Scheduler object anymore.
-  //           However, 'this' points to prevThread's Scheduler object.
-  Runtime::postThreadResume(prevThread, ctx);
-  if (currThread->state == Thread::Cancelled) {
-    currThread->state = Thread::Finishing;
-    switchThread(nullptr);
-    unreachable();
-  }
-  return true;
-}
-
-// return 'prevThread' only if the previous thread needs to be destroyed
-extern "C" Thread* postSwitch(Thread* prevThread, Scheduler* target) {
-  CHECK_LOCK_COUNT(1);
-  if slowpath(prevThread->finishing()) return prevThread;
-  if fastpath(target) Scheduler::resume(*prevThread);
   return nullptr;
 }
 
-extern "C" void invokeThread(Thread* prevThread, Runtime::MemoryContext* ctx, funcvoid3_t func, ptr_t arg1, ptr_t arg2, ptr_t arg3) {
-  Runtime::postThreadResume(prevThread, *ctx);
-  Runtime::EnablePreemption();
-  func(arg1, arg2, arg3);
-  Runtime::getScheduler()->terminate();
-}
-
-void Scheduler::enqueue(Thread& t) {
-  GENASSERT1(t.priority < maxPriority, t.priority);
-  bool wake = rq.push(t);
-  Runtime::debugS("Thread ", FmtHex(&t), " queued on ", FmtHex(this));
-  if (wake) Runtime::wakeUp(this);
-}
-
-void Scheduler::resume(Thread& t) {
-  GENASSERT1(&t != Runtime::getCurrThread(), Runtime::getCurrThread());
-  if (t.nextScheduler) t.nextScheduler->enqueue(t);
-  else Runtime::getScheduler()->enqueue(t);
-}
-
-bool Scheduler::yield() {
-  Runtime::DisablePreemption dp(true);
-  return preempt();
-}
-
-bool Scheduler::preempt() {        // expect IRQs disabled, lock count inflated
+void BaseScheduler::ready(Thread& t) {
 #if TESTING_NEVER_MIGRATE
-  return switchThread(this);
 #else /* migration enabled */
-  Scheduler* target = Runtime::getCurrThread()->getAffinity();
 #if TESTING_ALWAYS_MIGRATE
-  if (!target) target = partner;
+  if (!t.hasAffinity()) peer->enqueue(t);
 #else /* simple load balancing */
-  if (!target) target = (partner->rq.size() + 2 < rq.size()) ? partner : this;
+  if (!t.hasAffinity() && peer->readyCount + 2 < readyCount) peer->enqueue(t);
 #endif
-  return switchThread(target);
+  else
 #endif
+  enqueue(t);
 }
 
-void Scheduler::suspend(BasicLock& lk) {
-  Runtime::DisablePreemption dp;
-  switchThread(nullptr, lk);
+void Scheduler::wakeUp() {
+  if (idler) {
+    Runtime::wake(*idler);
+    idler = nullptr;
+  }
 }
 
-void Scheduler::suspend(BasicLock& lk1, BasicLock& lk2) {
-  Runtime::DisablePreemption dp;
-  switchThread(nullptr, lk1, lk2);
-}
-
-void Scheduler::terminate() {
-  Runtime::DisablePreemption dp(true);
-  Thread* thr = Runtime::getCurrThread();
-  GENASSERT1(thr->state != Thread::Blocked, thr->state);
-  thr->state = Thread::Finishing;
-  switchThread(nullptr);
-  unreachable();
+void GroupScheduler::wakeUp() {
 }

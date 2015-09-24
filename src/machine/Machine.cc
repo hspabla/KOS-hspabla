@@ -14,7 +14,6 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ******************************************************************************/
-#include "runtime/Scheduler.h"
 #include "runtime/Thread.h"
 #include "kernel/AddressSpace.h"
 #include "kernel/Clock.h"
@@ -25,7 +24,6 @@
 #include "machine/asmdecl.h"
 #include "machine/APIC.h"
 #include "machine/Machine.h"
-#include "machine/Processor.h"
 #include "machine/Paging.h"
 #include "devices/Keyboard.h"
 #include "devices/PCI.h"
@@ -72,11 +70,11 @@ extern const char __KernelBss,   __KernelBssEnd;
 extern const char __MultibootHdr;
 
 // various helpers during bootstrap
-static size_t boot16Size       __section(".boot.data"); // size of AP boot sector
-static Processor bootProcessor __section(".boot.data"); // boot processor object
-static vaddr kernelEnd         __section(".boot.data"); // passed from initBSP to bootCleanup
-static volatile mword apIndex  __section(".boot.data"); // enumerate APs
-static paddr pml4addr          __section(".boot.data"); // root of kernel AS
+static size_t boot16Size      __section(".boot.data"); // size of AP boot sector
+static vaddr kernelEnd        __section(".boot.data"); // passed from initBSP to bootCleanup
+static volatile mword apIndex __section(".boot.data"); // enumerate APs
+static paddr pml4addr         __section(".boot.data"); // root of kernel AS
+static VirtualProcessor bootProcessor __section(".boot.data"); // boot processor object
 
 // global frame manager objects
 static FrameManager frameManager;
@@ -92,8 +90,7 @@ static InterruptDescriptor idt[maxIDT]                __aligned(pagesize<1>());
 
 // CPU information
 mword Machine::processorCount = 0;
-static Processor* processorTable = nullptr;
-static Scheduler* schedulerTable = nullptr;
+VirtualProcessor* Machine::processorTable = nullptr;
 static mword bspIndex = ~mword(0);
 static mword bspApicID = ~mword(0);
 
@@ -122,10 +119,8 @@ static Semaphore asyncIrqSem;
 // init routine for APs: on boot stack and using identity paging
 void Machine::initAP(mword idx) {
   KASSERT1(idx == apIndex, idx);
-  processorTable[apIndex].init0();
-  processorTable[apIndex].init1(pml4addr, false);
-  processorTable[apIndex].init2(idt, sizeof(idt));
-  processorTable[apIndex].init3(initAP2);
+  processorTable[apIndex].SystemProcessor::initAll(pml4addr, idt, sizeof(idt), processorTable[apIndex], frameManager);
+  processorTable[apIndex].VirtualProcessor::start(initAP2);
 }
 
 // on proper stack, processor initialized
@@ -135,7 +130,7 @@ void Machine::initAP2() {
   DBG::outl(DBG::Boot, "Enabling AP interrupts...");
   LocalProcessor::initInterrupts(false);       // enable interrupts (off boot stack)
   DBG::outl(DBG::Boot, "Finishing AP boot thread...");
-  LocalProcessor::getScheduler()->terminate(); // idle thread takes over
+  Runtime::thisProcessor()->terminate(); // idle thread takes over
 }
 
 // init routine for BSP, on boot stack and identity paging
@@ -152,7 +147,7 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   KernelHeap::init0( (vaddr)bootHeap, sizeof(bootHeap) );
 
   // set up boot processor for lock counter -> output/malloc uses spinlock
-  bootProcessor.init0();
+  bootProcessor.HardwareProcessor::init0();
 
   // initialize multiboot & debugging: no debug options before this point!
   vaddr mbiEnd = Multiboot::init(magic, mbiAddr);
@@ -174,8 +169,8 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   setupIDTable();
 
   // check processor, set paging bits, print results, set up IDT
-  bootProcessor.init1(topaddr, true);
-  bootProcessor.init2(idt, sizeof(idt));
+  bootProcessor.HardwareProcessor::init1(topaddr, true);
+  bootProcessor.HardwareProcessor::init2(idt, sizeof(idt));
 
   // print MBI info, get RSDP, re-init debugging to print debug options
   paddr rsdp = Multiboot::init2();
@@ -250,8 +245,8 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   DBG::outl(DBG::Boot, "AS/init: ", defaultAS);
 
   // set frame manager & address space in boot processor -> needed for page mappings
-  bootProcessor.frameManager = &frameManager;
-  bootProcessor.currAS = &defaultAS;
+  bootProcessor.HardwareProcessor::init3(bootProcessor);
+  bootProcessor.SystemProcessor::init0(frameManager);
 
   // initialize frame manager after rerun of constructors
   frameManager.init((bufptr_t)(kerneltop - fmMemory));
@@ -295,16 +290,14 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   // determine processorCount and create processorTable
   KASSERT0(apicMap.size());
   processorCount = apicMap.size();
-  processorTable = knewN<Processor>(processorCount);
-  schedulerTable = knewN<Scheduler>(processorCount);
-  AddressSpaceMarker* uMarker = knewN<AddressSpaceMarker>(processorCount);
-  AddressSpaceMarker* kMarker = knewN<AddressSpaceMarker>(processorCount);
+  processorTable = knewN<VirtualProcessor>(processorCount);
   mword coreIdx = 0;
   for (const pair<uint32_t,uint32_t>& ap : apicMap) {
-    DBG::outl( DBG::Boot, "Scheduler ", coreIdx, " at ", FmtHex(schedulerTable + coreIdx));
-    schedulerTable[coreIdx].init(schedulerTable[(coreIdx + 1) % processorCount]);
-    processorTable[coreIdx].setup(defaultAS, schedulerTable[coreIdx], frameManager,
-      uMarker[coreIdx], kMarker[coreIdx], coreIdx, ap.second, ap.first);
+    VirtualProcessor& p = processorTable[ coreIdx];
+    VirtualProcessor& q = processorTable[(coreIdx + 1) % processorCount];
+    p.setup(coreIdx, ap.second, ap.first);
+    p.getScheduler()->setPeer(q.getScheduler());
+    DBG::outl(DBG::Boot, "Scheduler ", coreIdx, " at ", FmtHex(p.getScheduler()));
     coreIdx += 1;
   }
 
@@ -321,10 +314,8 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   DBG::outl(DBG::Boot, "CPUs: ", processorCount, '/', bspIndex, '/', bspApicID);
 
   // init and install processor object (need bspIndex) -> start main/idle loop
-  processorTable[bspIndex].init0();
-  processorTable[bspIndex].init1(pml4addr, false);
-  processorTable[bspIndex].init2(idt, sizeof(idt));
-  processorTable[bspIndex].init3(bootMain);
+  processorTable[bspIndex].SystemProcessor::initAll(pml4addr, idt, sizeof(idt), processorTable[bspIndex], frameManager);
+  processorTable[bspIndex].VirtualProcessor::start(bootMain);
 }
 
 // on proper stack, processor initialized
@@ -357,7 +348,7 @@ void Machine::initBSP2() {
   // send test IPI to self <- reception needs interrupts enabled
   tipiTest = false;
   tipiHandler = tipiReceiver;
-  sendIPI(bspIndex, APIC::TestIPI);
+  processorTable[bspIndex].sendIPI(APIC::TestIPI);
   while (!tipiTest) CPU::Pause();
 
   // NOTE: could use broadcast and ticket lock sequencing
@@ -417,7 +408,7 @@ apDone:
 
   // start irq thread after cdi init -> avoid interference from device irqs
   DBG::outl(DBG::Boot, "Creating IRQ thread...");
-  Thread::create()->setPriority(topPriority)->setAffinity(processorTable[0].scheduler)->start((ptr_t)asyncIrqLoop);
+  Thread::create()->setPriority(topPriority)->setAffinity(processorTable[0].getScheduler())->start((ptr_t)asyncIrqLoop);
 }
 
 void Machine::bootCleanup() {
@@ -453,27 +444,7 @@ void Machine::bootMain() {
   Machine::initBSP2();
   Machine::bootCleanup();
   Thread::create()->start((ptr_t)kosMain);
-  LocalProcessor::getScheduler()->terminate(); // explicitly terminate boot thread
-}
-
-void Machine::setAffinity(Thread& t, mword idx) {
-  KASSERT1(idx < processorCount, idx);
-  t.setAffinity(processorTable[idx].scheduler);
-}
-
-void Machine::sendIPI(mword idx, uint8_t vec) {
-  MappedAPIC()->sendIPI(processorTable[idx].apicID, vec);
-}
-
-void Machine::sendWakeIPI(Scheduler* scheduler) {
-  MappedAPIC()->sendIPI(processorTable[scheduler - schedulerTable].apicID, APIC::WakeIPI);
-}
-
-void Machine::rrPreemptIPI(mword tick) {
-  mword idx = tick % processorCount;
-  if (!schedulerTable[idx].idle()) { // TODO: would disable local APIC timer...
-    sendIPI(processorTable[idx].apicID, APIC::PreemptIPI);
-  }
+  Runtime::thisProcessor()->terminate(); // explicitly terminate boot thread
 }
 
 /*********************** IRQ / Exception Handling Code ***********************/
@@ -536,12 +507,16 @@ void Machine::deregisterIrqAsync(mword irq, funcvoid1_t handler) {
   if (irqTable[irq].handlers.empty()) mapIrq(irq, 0);
 }
 
+constexpr inline mword Machine::kernCS() {
+  return HardwareProcessor::kernCS * sizeof(SegmentDescriptor);
+}
+
 void Machine::setupIDT(uint32_t number, paddr address, uint32_t ist) {
   KASSERT1(number < maxIDT, number);
   idt[number].Offset00 = (address & 0x000000000000FFFF);
   idt[number].Offset16 = (address & 0x00000000FFFF0000) >> 16;
   idt[number].Offset32 = (address & 0xFFFFFFFF00000000) >> 32;
-  idt[number].SegmentSelector = Processor::kernCS * sizeof(SegmentDescriptor);
+  idt[number].SegmentSelector = kernCS();
   idt[number].IST = ist;
   idt[number].Type = 0x0E; // 64-bit interrupt gate (trap gate does not disable interrupts)
   idt[number].P = 1;
@@ -562,17 +537,17 @@ void Machine::setupIDTable() {
   // first 32 vectors are architectural or reserved
   setupIDT(0x00, (vaddr)&isr_wrapper_0x00);
   setupIDT(0x01, (vaddr)&isr_wrapper_0x01);
-  setupIDT(0x02, (vaddr)&isr_wrapper_0x02, Processor::nmiIST);
+  setupIDT(0x02, (vaddr)&isr_wrapper_0x02, HardwareProcessor::nmiIST);
   setupIDT(0x03, (vaddr)&isr_wrapper_0x03);
   setupIDT(0x04, (vaddr)&isr_wrapper_0x04);
   setupIDT(0x05, (vaddr)&isr_wrapper_0x05);
   setupIDT(0x06, (vaddr)&isr_wrapper_0x06);
   setupIDT(0x07, (vaddr)&isr_wrapper_0x07);
-  setupIDT(0x08, (vaddr)&isr_wrapper_0x08, Processor::dbfIST); // double fault
+  setupIDT(0x08, (vaddr)&isr_wrapper_0x08, HardwareProcessor::dbfIST); // double fault
   setupIDT(0x09, (vaddr)&isr_wrapper_0x09);
   setupIDT(0x0a, (vaddr)&isr_wrapper_0x0a);
   setupIDT(0x0b, (vaddr)&isr_wrapper_0x0b);
-  setupIDT(0x0c, (vaddr)&isr_wrapper_0x0c, Processor::stfIST); // stack fault
+  setupIDT(0x0c, (vaddr)&isr_wrapper_0x0c, HardwareProcessor::stfIST); // stack fault
   setupIDT(0x0d, (vaddr)&isr_wrapper_0x0d); // general protection fault
   setupIDT(0x0e, (vaddr)&isr_wrapper_0x0e); // page fault
   setupIDT(0x0f, (vaddr)&isr_wrapper_0x0f);
@@ -829,7 +804,7 @@ public:
   constexpr mword* rflags() const { return frame+2; }
   constexpr mword* rsp()    const { return frame+3; }
   constexpr mword* ss()     const { return frame+4; }
-  bool fromUser() { return Processor::userSegment(*cs()); }
+  bool fromUser() { return *cs() != Machine::kernCS(); }
   IsrEntry(mword* is) : frame(is) {
     if (irq) MappedAPIC()->sendEOI();
     if (fromUser()) CPU::SwapGS();
@@ -839,7 +814,7 @@ public:
     LocalProcessor::unlockFake();
     if (fromUser()) {
       checkSignals();
-      LocalProcessor::setKernelStack();
+      LocalProcessor::setKernelStack(CurrThread());
       CPU::SwapGS();
     }
   }
@@ -1000,14 +975,12 @@ extern "C" void irq_handler_async(mword* isrFrame, mword idx) {
 
 extern "C" void irq_handler_0xe0(mword* isrFrame) { // APIC::WakeIPI
   IsrEntry<true> ie(isrFrame);
-  LocalProcessor::getScheduler()->preempt();
+  Runtime::thisProcessor()->preempt();
 }
 
 extern "C" void irq_handler_0xed(mword* isrFrame) { // APIC::PreemptIPI
   IsrEntry<true> ie(isrFrame);
-  if (!LocalProcessor::getScheduler()->preempt()) {
-    CurrAS().runInvalidation();
-  }
+  Runtime::thisProcessor()->preempt();
 }
 
 extern "C" void irq_handler_0xee(mword* isrFrame) { // APIC::TestIPI
@@ -1045,7 +1018,8 @@ extern "C" void irq_handler_0xf8(mword* isrFrame) { // RTC interrupt
 #endif
   if (!irqMask.empty()) asyncIrqSem.V(); // check interrupts
   Timeout::checkExpiry(Clock::now());    // check timeout queue
-  Machine::rrPreemptIPI(rtc.tick());     // simulate APIC timer interrupts
+                                         // simulate APIC timer interrupts
+  Machine::getProcessor(rtc.tick() % Machine::getProcessorCount()).sendIPI(APIC::PreemptIPI);
 }
 
 extern "C" void irq_handler_0xf9(mword* isrFrame) { // spuriously seen
@@ -1077,7 +1051,9 @@ void Reboot(vaddr ia) {
   Breakpoint(ia);
 #if 1
   for (mword i = 0; i < Machine::getProcessorCount(); i++) {
-    if (i != LocalProcessor::getIndex()) Machine::sendIPI(i, APIC::StopIPI);
+    if (i != LocalProcessor::getIndex()) {
+      Machine::getProcessor(i).sendIPI(APIC::StopIPI);
+    }
   }
   mword rbp;
   asm volatile("mov %%rbp, %0" : "=r"(rbp));

@@ -27,8 +27,8 @@ static Semaphore tsem;
 static mword acquireCount;
 static mword releaseCount;
 
-static const int testcount  = 5000;
-static const int printcount = 500;
+static const int testcount  = 2500;
+static const int printcount = 250;
 
 // Mutex Test
 static void mutexTestMain(ptr_t x) {
@@ -131,6 +131,14 @@ static void producer(ptr_t) {
 void SyncQueueTest() {
   KOUT::outl("running SyncQueueTest...");
   Thread::create()->start((ptr_t)consumer);
+  Thread::create()->start((ptr_t)consumer);
+  Thread::create()->start((ptr_t)consumer);
+  Thread::create()->start((ptr_t)consumer);
+  Thread::create()->start((ptr_t)consumer);
+  Thread::create()->start((ptr_t)producer);
+  Thread::create()->start((ptr_t)producer);
+  Thread::create()->start((ptr_t)producer);
+  Thread::create()->start((ptr_t)producer);
   Thread::create()->start((ptr_t)producer);
   tsem.P();
 }

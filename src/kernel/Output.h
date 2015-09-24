@@ -18,7 +18,7 @@
 #define _Output_h_ 1
 
 #include "generic/Bitmap.h"
-#include "machine/SpinLock.h"
+#include "kernel/SpinLock.h"
 
 #include <cstdarg>
 
