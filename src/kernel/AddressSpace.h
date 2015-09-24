@@ -90,8 +90,7 @@ allocFailed:
 
   void putVmRange(vaddr addr, size_t size) {
     vaddr end = addr + size;
-    ScopedLock<> sl(vlock);
-    if (addr <= mapStart && end >= mapStart) {
+    if (addr <= mapStart && mapStart <= end) {
       while ((size = Paging::test(end, Available)) && end + size <= mapTop) end += size;
       DBG::outl(DBG::VM, "AS(", FmtHex(this), ")/put: ", FmtHex(mapStart), '-', FmtHex(end));
       // TODO: clear page tables in range [mapStart...end]

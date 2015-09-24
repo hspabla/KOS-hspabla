@@ -111,21 +111,23 @@ inline void Timeout::sleep(mword timeout) {
 }
 
 inline void Timeout::checkExpiry(mword now) {
-  list<Thread*> fireList;
+
+  list<pair<Thread*,UnblockInfo*>> fireList;
   lock.acquire();
   for (auto it = queue.begin(); it != queue.end() && it->first <= now; ) {
     Thread* t = it->second;
-    if (t->unblock()) {
+    UnblockInfo* ubi = t->getUnblockInfo();
+    if (ubi) {
       it = queue.erase(it);
-      fireList.push_back(t);
+      fireList.push_back( {t, ubi} );
     } else {
       it = next(it);
     }
   }
   lock.release();
-  for (auto t : fireList) {
-    t->getUnblockInfo().cancelEvent(*t);
-    t->resume();
+  for (auto f : fireList) {
+    f.second->cancelEvent(*f.first);
+    f.first->resume();
   }
 }
 
@@ -155,10 +157,11 @@ public:
 
   bool resume(BasicLock& bLock, Thread*& t) {
     for (t = queue.front(); t != queue.fence(); t = IntrusiveList<Thread>::next(*t)) {
-      if (t->unblock()) {
+      UnblockInfo* ubi = t->getUnblockInfo();
+      if (ubi) {
         IntrusiveList<Thread>::remove(*t);
         bLock.release();
-        t->getUnblockInfo().cancelTimeout();
+        ubi->cancelTimeout();
         t->resume();
         return true;
       }

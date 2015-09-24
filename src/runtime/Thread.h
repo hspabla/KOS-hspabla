@@ -49,7 +49,7 @@ class Thread : public IntrusiveList<Thread>::Link {
   const Thread& operator=(const Thread&) = delete;
 
 protected:
-  enum State { Running, Blocked, Cancelled, Finishing } state;
+  enum State { Running, Cancelled, Finishing } state;
   UnblockInfo* unblockInfo; // unblock vs. timeout vs. cancel
 
   Thread(vaddr sb, size_t ss) :
@@ -71,26 +71,20 @@ public:
   void cancel();
 
   bool block(UnblockInfo* ubi) {
-    GENASSERT1(this == CurrThread(), CurrThread());
-    GENASSERT1(state != Blocked, state);
-    unblockInfo = ubi;
-    State expected = Running;
-    return __atomic_compare_exchange_n(&state, &expected, Blocked, 0, __ATOMIC_RELEASE, __ATOMIC_RELAXED);
+    GENASSERT1(this == CurrThread(), FmtHex(CurrThread()));
+    GENASSERT1(unblockInfo == nullptr, FmtHex(unblockInfo));
+    GENASSERT1(state != Finishing, state);
+    if (state == Cancelled) return false;
+    __atomic_store_n( &unblockInfo, ubi, __ATOMIC_RELEASE );
+    return true;
   }
 
-  bool unblock() {
+  UnblockInfo* getUnblockInfo() {
     GENASSERT1(this != CurrThread(), CurrThread());
-    State expected = Blocked;
-    return __atomic_compare_exchange_n(&state, &expected, Running, 0, __ATOMIC_RELAXED, __ATOMIC_RELAXED);
-  }
-
-  UnblockInfo& getUnblockInfo() {
-    GENASSERT0(unblockInfo);
-    return *unblockInfo;
+    return __atomic_exchange_n( &unblockInfo, nullptr, __ATOMIC_RELAXED );
   }
 
   void resume() {
-    GENASSERT1(state != Blocked, state);
     GENASSERT0(nextScheduler);
     nextScheduler->resume(*this);
   }

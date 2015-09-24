@@ -33,6 +33,7 @@ Thread* Thread::create() {
 
 void Thread::destroy() {
   GENASSERT1(state == Finishing, state);
+  GENASSERT1(unblockInfo == nullptr, FmtHex(unblockInfo));
   Runtime::debugT("Thread destroy: ", FmtHex(stackBottom), '/', FmtHex(stackSize), '/', FmtHex(this));
   Runtime::releaseThreadStack(stackBottom, stackSize);
 }
@@ -44,9 +45,11 @@ void Thread::start(ptr_t func, ptr_t p1, ptr_t p2, ptr_t p3) {
 
 void Thread::cancel() {
   GENASSERT1(this != CurrThread(), CurrThread());
-  if (__atomic_exchange_n(&state, Cancelled, __ATOMIC_ACQUIRE) == Blocked) {
-    unblockInfo->cancelTimeout();
-    unblockInfo->cancelEvent(*this);
+  state = Cancelled;
+  UnblockInfo* ubi = getUnblockInfo();
+  if (ubi) {
+    ubi->cancelTimeout();
+    ubi->cancelEvent(*this);
     resume();
   }
 }
