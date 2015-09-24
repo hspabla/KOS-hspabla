@@ -64,6 +64,7 @@ static const char* options[] = {
   "file",
   "gdbdebug",
   "gdbenable",
+  "idle",
   "kmem",
   "libc",
   "lwip",

@@ -92,6 +92,7 @@ public:
     File,
     GDBDebug,
     GDBEnable,
+    Idle,
     KernMem,
     Libc,
     Lwip,

@@ -27,6 +27,17 @@
 
 namespace Runtime {
 
+  /**** debug output routines ****/
+
+  template<typename... Args>
+  static void debugI(const Args&... a) { DBG::outl(DBG::Idle, a...); }
+
+  template<typename... Args>
+  static void debugS(const Args&... a) { DBG::outl(DBG::Scheduler, a...); }
+
+  template<typename... Args>
+  static void debugT(const Args&... a) { DBG::outl(DBG::Threads, a...); }
+
   /**** AddressSpace-related interface ****/
 
   static MemoryContext currentAS() { return ::CurrAS(); }
@@ -50,6 +61,7 @@ namespace Runtime {
   static void idle(VirtualProcessor& vp) {
     if (!CurrFM().zeroMemory()) {
       vp.getScheduler()->reportIdle(vp);
+      Runtime::debugI("idle halt");
       if (vp.empty()) CPU::Halt();
     }
   }
@@ -72,14 +84,6 @@ namespace Runtime {
       prevAS.postThreadDestroy();
     }
   }
-
-  /**** debug output routines ****/
-
-  template<typename... Args>
-  static void debugT(const Args&... a) { DBG::outl(DBG::Threads, a...); }
-
-  template<typename... Args>
-  static void debugS(const Args&... a) { DBG::outl(DBG::Scheduler, a...); }
 }
 
 #else

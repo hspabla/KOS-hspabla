@@ -84,6 +84,7 @@ extern "C" void invokeThread(Thread* prevThread, MemoryContext memctx, funcvoid3
 
 void VirtualProcessor::idleLoop(VirtualProcessor* This) {
   for (;;) {
+    Runtime::debugI("idle spin");
     Runtime::spin(*This);
     mword e = This->epoch;
     for (;;) {
@@ -117,7 +118,6 @@ void VirtualProcessor::suspend(BasicLock& lk1, BasicLock& lk2) {
 
 void VirtualProcessor::terminate() {
   Runtime::DisablePreemption dp(true);
-  GENASSERT1(currThread->state != Thread::Blocked, currThread->state);
   currThread->state = Thread::Finishing;
   switchThread(false);
   unreachable();
