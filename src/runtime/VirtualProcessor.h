@@ -34,6 +34,7 @@ class VirtualProcessor : public IntrusiveList<VirtualProcessor>::Link, public Sy
   VirtualProcessor& operator=(const VirtualProcessor&) = delete; // no assignment
 public:
   VirtualProcessor() : currThread(nullptr), epoch(0) {}
+  void wake() { epoch += 1; }
   void yield();
   void preempt();
   void suspend(BasicLock& lk);

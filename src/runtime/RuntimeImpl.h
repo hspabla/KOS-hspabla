@@ -60,13 +60,15 @@ namespace Runtime {
 
   static void idle(VirtualProcessor& vp) {
     if (!CurrFM().zeroMemory()) {
-      vp.getScheduler()->reportIdle(vp);
       Runtime::debugI("idle halt");
-      if (vp.empty()) CPU::Halt();
+      if (vp.getScheduler()->reportIdle(vp)) CPU::Halt();
     }
   }
 
-  static void wake(VirtualProcessor& vp) { vp.sendWakeIPI(); }
+  static void wake(VirtualProcessor& vp) {
+    Runtime::debugI("send WakeIPI to ", vp.getIndex());
+    vp.sendWakeIPI();
+  }
 
   /**** thread switch ****/
 

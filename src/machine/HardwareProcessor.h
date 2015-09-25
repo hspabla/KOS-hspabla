@@ -82,6 +82,7 @@ protected:
 
 public:
   HardwareProcessor() : lockCount(1), index(0), apicID(0), systemID(0), lproc(nullptr) {}
+  mword getIndex() const { return index; }
 
   void sendIPI(uint8_t vec) { MappedAPIC()->sendIPI(apicID, vec); }
   void sendWakeIPI() { sendIPI(APIC::WakeIPI); }

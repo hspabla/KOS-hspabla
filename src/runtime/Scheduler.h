@@ -49,14 +49,19 @@ class Scheduler : public BaseScheduler {
   VirtualProcessor* idler;
 public:
   Scheduler() : idler(nullptr) {}
-  void reportIdle(VirtualProcessor& vp) { AutoLock al(lock); idler = &vp; }
+  bool reportIdle(VirtualProcessor& vp) {
+    AutoLock al(lock);
+    if (!empty()) return false;
+    idler = &vp;
+    return true;
+  }
   virtual void wakeUp();
 };
 
 class GroupScheduler : public BaseScheduler {
   IntrusiveList<BaseScheduler> idleQueue;
 public:
-  void reportIdle(BaseScheduler& bs) {}
+  bool reportIdle(BaseScheduler& bs) { return false; }
   virtual void wakeUp();
 };
 

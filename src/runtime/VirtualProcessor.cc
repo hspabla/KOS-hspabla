@@ -87,11 +87,10 @@ void VirtualProcessor::idleLoop(VirtualProcessor* This) {
     Runtime::debugI("idle spin");
     Runtime::spin(*This);
     mword e = This->epoch;
-    for (;;) {
-      This->yield();
-      if (e != This->epoch) break;
+    This->yield();
+    while (e == This->epoch) {
       Runtime::idle(*This);
-      if (e != This->epoch) break;
+      This->yield();
     }
   }
   unreachable();

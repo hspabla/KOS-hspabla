@@ -975,7 +975,7 @@ extern "C" void irq_handler_async(mword* isrFrame, mword idx) {
 
 extern "C" void irq_handler_0xe0(mword* isrFrame) { // APIC::WakeIPI
   IsrEntry<true> ie(isrFrame);
-  Runtime::thisProcessor()->preempt();
+  Runtime::thisProcessor()->wake();
 }
 
 extern "C" void irq_handler_0xed(mword* isrFrame) { // APIC::PreemptIPI
