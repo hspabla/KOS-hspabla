@@ -75,13 +75,13 @@ public:
     GENASSERT1(unblockInfo == nullptr, FmtHex(unblockInfo));
     GENASSERT1(state != Finishing, state);
     if (state == Cancelled) return false;
-    __atomic_store_n( &unblockInfo, ubi, __ATOMIC_RELEASE );
+    __atomic_store_n( &unblockInfo, ubi, __ATOMIC_SEQ_CST );
     return true;
   }
 
   UnblockInfo* getUnblockInfo() {
     GENASSERT1(this != CurrThread(), CurrThread());
-    return __atomic_exchange_n( &unblockInfo, nullptr, __ATOMIC_RELAXED );
+    return __atomic_exchange_n( &unblockInfo, nullptr, __ATOMIC_SEQ_CST );
   }
 
   void resume() {
