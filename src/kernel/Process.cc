@@ -19,6 +19,8 @@
 #include "kernel/Process.h"
 #include "extern/elfio/elfio.hpp"
 
+SpinLock Process::elfLock;
+
 void Process::invokeUser(funcvoid2_t func, ptr_t arg1, ptr_t arg2) {
   UserThread* ut = Process::CurrUT();
   ut->stackSize = defaultUserStack;
@@ -39,6 +41,7 @@ inline funcvoid2_t Process::load() {
   auto iter = kernelFS.find(fileName);
   KASSERT1(iter != kernelFS.end(), fileName.c_str())
   RamFile& rf = iter->second;
+  ScopedLock<> sl(elfLock);
   ELFIO::elfio elfReader;
   bool check = elfReader.load(fileName.c_str());
   KASSERT0(check);

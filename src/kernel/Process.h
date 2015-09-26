@@ -44,6 +44,7 @@ class Process : public AddressSpace {
   size_t existingThreads;
   ManagedArray<UserThread*,KernelAllocator> threadStore;
 
+  static SpinLock elfLock;
   string fileName;
   vaddr sigHandler;
 
