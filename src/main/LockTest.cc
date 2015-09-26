@@ -34,7 +34,7 @@ static const int printcount = 250;
 static void mutexTestMain(ptr_t x) {
   for (int i = 0; i < testcount; i++) {
     mword t = Clock::now();
-    if (t % 11 == 0 && mtx.tryAcquire(t + t % 11)) {
+    if (t % 11 == 0 && mtx.tryAcquire(t % 12)) {
       DBG::outl(DBG::Tests, "mutex ", (char*)x, " nb");
     } else {
       mtx.acquire();
@@ -73,7 +73,7 @@ void MutexTest() {
 static void semaphoreTestMain(ptr_t x) {
   for (int i = 0; i < testcount; i++) {
     mword t = Clock::now();
-    if (t % 11 == 0 && sem.tryP(t + t % 11)) {
+    if (t % 11 == 0 && sem.tryP(t % 12)) {
       DBG::outl(DBG::Tests, "semaphore ", (char*)x, " nb");
     } else {
       sem.P();
@@ -112,34 +112,43 @@ void SemaphoreTest() {
 static const mword SENTINEL = ~0;
 static MessageQueue<FixedRingBuffer<mword, 256>> syncQueue;
 
-static void consumer(ptr_t) {
+static void consumer(ptr_t x) {
   for (;;) {
     mword val = syncQueue.recv();
     if (val == SENTINEL) break;
-    if (val % printcount == 0) DBG::outl(DBG::Basic, "removed:", val);
+    if (val % (printcount) == 0) DBG::outl(DBG::Tests, "consumer ", (char*)x, " removed ", val);
   }
   tsem.V();
 }
 
-static void producer(ptr_t) {
-  for (mword i = 0; i < testcount; i += 1) {
-    while (!syncQueue.trySend(i)) CPU::Pause();
+static void producer(ptr_t x) {
+  for (mword i = 0; i < (testcount); i += 1) {
+    mword t = Clock::now();
+    if (t % 11 == 0 && syncQueue.trySend(i, t % 12)) {
+      DBG::outl(DBG::Tests, "producer ", (char*)x, " nb");
+    } else {
+      syncQueue.send(i);
+    }
   }
   syncQueue.send(SENTINEL);
 }
 
 void SyncQueueTest() {
   KOUT::outl("running SyncQueueTest...");
-  Thread::create()->start((ptr_t)consumer);
-  Thread::create()->start((ptr_t)consumer);
-  Thread::create()->start((ptr_t)consumer);
-  Thread::create()->start((ptr_t)consumer);
-  Thread::create()->start((ptr_t)consumer);
-  Thread::create()->start((ptr_t)producer);
-  Thread::create()->start((ptr_t)producer);
-  Thread::create()->start((ptr_t)producer);
-  Thread::create()->start((ptr_t)producer);
-  Thread::create()->start((ptr_t)producer);
+  Thread::create()->start((ptr_t)consumer, (ptr_t)"c1");
+  Thread::create()->start((ptr_t)consumer, (ptr_t)"c2");
+  Thread::create()->start((ptr_t)consumer, (ptr_t)"c3");
+  Thread::create()->start((ptr_t)consumer, (ptr_t)"c4");
+  Thread::create()->start((ptr_t)consumer, (ptr_t)"c5");
+  Thread::create()->start((ptr_t)producer, (ptr_t)"p1");
+  Thread::create()->start((ptr_t)producer, (ptr_t)"p2");
+  Thread::create()->start((ptr_t)producer, (ptr_t)"p3");
+  Thread::create()->start((ptr_t)producer, (ptr_t)"p4");
+  Thread::create()->start((ptr_t)producer, (ptr_t)"p5");
+  tsem.P();
+  tsem.P();
+  tsem.P();
+  tsem.P();
   tsem.P();
 }
 
