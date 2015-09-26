@@ -1,8 +1,8 @@
 #!/bin/bash
 
 function runtest() {
-	echo -n > /tmp/KOS.serial
 	make $1 iso
+	echo -n > /tmp/KOS.serial
 	make $1 $2 &
 	sleep 3
 	case $2 in
@@ -26,7 +26,8 @@ if [ $# -ge 1 ]; then
 	exit 0
 fi
 		
-for compile in gcc clang gccdebug clangdebug; do
+for compile in gcc clang gccdebug clangdebug
+do
 	make clean
 	case $compile in
 		gcc)        flags="";;
@@ -36,7 +37,8 @@ for compile in gcc clang gccdebug clangdebug; do
 		*)          echo $compile; exit 1;
 	esac
 	make $flags all
-	for target in qemu vbox bochs; do
+	for target in qemu vbox bochs
+	do
 		runtest "$flags" "$target"
 		cp /tmp/KOS.serial /tmp/KOS.serial.$target.$compile
 	done

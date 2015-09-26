@@ -32,7 +32,7 @@ class SystemProcessor : public HardwareProcessor {
   friend class FrameManager;
   friend class Machine;
   AddressSpace* volatile currAS;
-  FrameManager* frameManager;
+  FrameManager* volatile frameManager;
   AddressSpaceMarker userASM;
   AddressSpaceMarker kernASM;
   void init0(FrameManager& fm)                          __section(".boot.text");
