@@ -56,14 +56,14 @@ inline funcvoid2_t Process::load() {
     KASSERTN(pseg->get_file_offset() + pseg->get_file_size() <= rf.size, FmtHex(pseg->get_file_offset()), ' ', FmtHex(pseg->get_file_size()), ' ', FmtHex(rf.size));
     KASSERTN(pseg->get_memory_size() >= pseg->get_file_size(), FmtHex(pseg->get_file_size()), ' ', FmtHex(pseg->get_memory_size()));
     paddr pma = rf.pma + pseg->get_file_offset();
-    paddr apma = align_down(pma, pagesize<1>());
+    paddr apma = align_down(pma, smallps);
     vaddr vma = pseg->get_virtual_address();
-    vaddr avma = align_down(vma, pagesize<1>());
+    vaddr avma = align_down(vma, smallps);
     KASSERTN(vma - avma == pma - apma, FmtHex(vma), ' ', FmtHex(pma));
     vaddr fend = vma + pseg->get_file_size();
-    vaddr afend = align_up(fend, pagesize<1>());
+    vaddr afend = align_up(fend, smallps);
     vaddr mend = vma + pseg->get_memory_size();
-    vaddr amend = align_up(mend, pagesize<1>());
+    vaddr amend = align_up(mend, smallps);
 
     // If .rodata and .text are in the same elf segment and small enough to
     // fit into a single page, then .rodata ends up being marked executable.
@@ -73,12 +73,12 @@ inline funcvoid2_t Process::load() {
     DBG::outl(DBG::Process, "Process ",
       pageType == Data ? "data" : pageType == Code ? "code" : "ro  ",
       " segment: ", FmtHex(vma), '-', FmtHex(fend));
-    mapDirect<1>(apma, avma, afend - avma, pageType);
+    mapDirect<smallpl>(apma, avma, afend - avma, pageType);
 
     if (mend > fend) {
       DBG::outl(DBG::Process, "Process bss  segment: ", FmtHex(fend), '-', FmtHex(mend));
       if (amend > afend) { // newly mapped memory is already wiped
-        allocDirect<1>(afend, amend - afend, Data);
+        allocDirect<smallpl>(afend, amend - afend, Data);
       } else {             // leftover from binary: wipe to play it safe...
         memset((ptr_t)fend, 0, mend - fend);
       }

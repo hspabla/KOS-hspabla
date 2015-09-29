@@ -17,117 +17,174 @@
 #ifndef _FrameManager_h_
 #define _FrameManager_h_ 1
 
-#include "generic/Bitmap.h"
-#include "generic/IntrusiveContainers.h"
-#include "kernel/KernelHeap.h"
 #include "kernel/Output.h"
 #include "machine/Processor.h"
 
-class Machine;
+void FrameZero(vaddr vma, paddr pma, size_t offset, size_t size, _friend<FrameManager>);
 
-class FrameManager {
-  FrameManager(const FrameManager&) = delete;            // no copy
-  FrameManager& operator=(const FrameManager&) = delete; // no assignment
-
-  friend ostream& operator<<(ostream&, const FrameManager&);
-
+template<size_t PL> class FrameMap : public FrameMap<PL+1> {
   SpinLock lock;
-  HierarchicalBitmap<ptentries,framebits-pagesizebits<kernelpl>()> largeFrames;
-  HierarchicalBitmap<ptentries,framebits-pagesizebits<1>()> smallFrames;
-  HierarchicalBitmap<ptentries,framebits-pagesizebits<1>()> zeroFrames;
+  HierarchicalBitmap<ptentries,framebits-pagesizebits<PL>()> frames;
+  HierarchicalBitmap<ptentries,framebits-pagesizebits<PL>()> tozero;
+  static const size_t fsize = pagesize<PL>();
 
-  static const size_t largeSize = kernelps;
-  static const size_t smallSize = pagesize<1>();
-
-  paddr baseAddress;
-  paddr topAddress;
-
-  void releaseInternal(size_t idx) {
-    DBG::outl(DBG::Frame, "FM/release: ", FmtHex(idx * smallSize));
-    smallFrames.set(idx);
-    // check for full small bitmap -> mark large page as free
-    if (smallFrames.blockfull(idx)) {
-      smallFrames.blockclr(idx);
-      largeFrames.set(idx / ptentries);
+  bool releaseInternal(size_t idx) {
+    DBG::outl(DBG::Frame, "FM/release: ", FmtHex(idx * fsize), '/', FmtHex(fsize));
+    frames.set(idx);
+    if (frames.blockfull(idx)) { // full bitmap -> clear and mark larger frame
+      if (FrameMap<PL+1>::releaseDirect(idx / ptentries)) frames.blockclr(idx);
     }
+    return true;
   }
 
-  size_t allocLargeIdx() {
-    size_t idx;
-    for (;;) {
-      idx = largeFrames.find();
-      if (idx != limit<size_t>()) break;
-      if (!zeroInternal()) KABORT1("OUT OF MEMORY");
-    }
-    largeFrames.clr(idx);
-    DBG::outl(DBG::Frame, "FM/allocL: ", FmtHex(idx * largeSize), '/', FmtHex(largeSize));
-    return idx;
+  bool zeroInternal(_friend<FrameManager> ff) {
+    size_t idx = tozero.find();
+    if (idx == limit<size_t>()) return false;
+    tozero.clr(idx);
+    lock.release();
+    paddr pma = idx * fsize;
+    paddr apma = align_down(pma, kernelps);
+    vaddr vma = zeroBase + kernelps * LocalProcessor::getIndex();
+    FrameZero(vma, apma, pma - apma, fsize, ff);
+    lock.acquire();
+    releaseInternal(idx);
+    return true;
   }
 
-  paddr allocSmallIdx() {
+  bool zeroLocked(_friend<FrameManager> ff) {
+    ScopedLock<> sl(lock);
+    return zeroInternal(ff);
+  }
+
+public:
+  inline void print(ostream& os, paddr base, size_t range);
+
+  bool releaseDirect(size_t idx) {
+    ScopedLock<> sl(lock);
+    return releaseInternal(idx);
+  }
+
+  bool release(size_t idx, size_t cnt) {
+    while (cnt > 0) {
+      if ( aligned(idx, ptentries) && cnt >= ptentries
+        && FrameMap<PL+1>::release(idx / ptentries, cnt / ptentries) ) {
+        idx += align_down(cnt, ptentries);
+        cnt -= align_down(cnt, ptentries);
+      } else {
+        ScopedLock<> sl(lock);
+        tozero.set(idx);
+        idx += 1;
+        cnt -= 1;
+      }
+    }
+    return true;
+  }
+
+  bool zero(_friend<FrameManager> ff) {
+    return zeroLocked(ff) || FrameMap<PL+1>::zero(ff);
+  }
+
+  size_t alloc(_friend<FrameManager> ff) {
+    ScopedLock<> sl(lock);
     size_t idx;
     for (;;) {
-      idx = smallFrames.find();
+      idx = frames.find();
       if (idx != limit<size_t>()) break;
-      if (!zeroInternal()) {
-        idx = allocLargeIdx() * ptentries;
-        smallFrames.blockset(idx);
+      if (!zeroInternal(ff)) {
+        idx = FrameMap<PL+1>::alloc(ff) * ptentries;
+        frames.blockset(idx);
         break;
       }
     }
-    smallFrames.clr(idx);
-    DBG::outl(DBG::Frame, "FM/allocS: ", FmtHex(idx * smallSize), '/', FmtHex(smallSize));
+    frames.clr(idx);
+    DBG::outl(DBG::Frame, "FM/alloc: ", FmtHex(idx * fsize), '/', FmtHex(fsize));
     return idx;
   }
 
-  bool zeroInternal();
+  size_t allocRegion(size_t cnt, size_t lim, size_t range) {
+    ScopedLock<> sl(lock);
+    size_t idx = 0;
+    for (;;) {
+      size_t c = frames.findrange(idx, range / fsize);
+      if (c == 0 || idx > lim) {
+        idx = FrameMap<PL+1>::allocRegion(divup(cnt, ptentries), lim / ptentries, range) * ptentries;
+        frames.blockset(idx);
+        c = ptentries;
+      }
+      if (c >= cnt) {
+        for (size_t i = 0; i < cnt; i += 1) frames.clr(idx + i);
+        DBG::outl(DBG::Frame, "FM/alloc: ", FmtHex(idx * fsize), '/', (cnt * fsize));
+        return idx;
+      }
+      idx += c;
+    }
+  }
+
+  size_t allocsize(size_t range) {
+    return frames.allocsize(divup(range, fsize))
+         + tozero.allocsize(divup(range, fsize))
+         + FrameMap<PL+1>::allocsize(range);
+  }
+
+  void init(size_t range, bufptr_t p) {
+    frames.init(divup(range, fsize), p);
+    p += frames.allocsize(divup(range, fsize));
+    tozero.init(divup(range, fsize), p);
+    p += frames.allocsize(divup(range, fsize));
+    FrameMap<PL+1>::init(range, p);
+  }
+};
+
+template<> class FrameMap<kernelpl+1> {
+public:
+  bool releaseDirect(size_t) { return false; }
+  bool release(size_t, size_t) { return false; }
+  bool zero(_friend<FrameManager>) { return false; }
+  size_t alloc(_friend<FrameManager>) { KABORT1("OUT OF MEMORY"); }
+  size_t allocRegion(size_t, size_t, size_t) { KABORT1("IMPOSSIBLE REGION ALLOCATION"); }
+  void print(ostream&, paddr, size_t) {}
+  size_t allocsize(size_t) { return 0; }
+  void init(size_t, bufptr_t) {}
+};
+
+class FrameManager {
+  friend ostream& operator<<(ostream&, const FrameManager&);
+  FrameMap<smallpl> fmap;
+  paddr baseAddress;
+  size_t memRange;
 
 public:
-  FrameManager() {} // do not initialize baseAddress, topAddress!
-
-  size_t preinit( paddr bot, paddr top ) {
-    baseAddress = bot;
-    topAddress = top;
-    return largeFrames.allocsize(divup(top - bot, largeSize))
-         + smallFrames.allocsize(divup(top - bot, smallSize))
-         +  zeroFrames.allocsize(divup(top - bot, smallSize));
+  size_t preinit( paddr base, paddr top ) {
+    baseAddress = base;
+    memRange = top - base;
+    return fmap.allocsize(memRange);
   }
 
   void init( bufptr_t p ) {
-    size_t size = topAddress - baseAddress;
-    largeFrames.init(divup(size, largeSize), p);
-    p += largeFrames.allocsize(divup(size, largeSize));
-    smallFrames.init(divup(size, smallSize), p);
-    p += smallFrames.allocsize(divup(size, smallSize));
-    zeroFrames.init(divup(size, smallSize), p);
+    fmap.init(memRange, p);
   }
+
+  void release( paddr addr, size_t size ) {
+    KASSERT1(aligned(addr, smallps), FmtHex(addr));
+    KASSERT1(aligned(size, smallps), FmtHex(size));
+    fmap.release((addr - baseAddress) / smallps, size / smallps);
+  }
+
+  bool zeroMemory() { return fmap.zero(_friend<FrameManager>()); }
 
   template<size_t N>
   inline paddr allocFrame() {
-    ScopedLock<> sl(lock);
-    switch (N) {
-      case 1:        return baseAddress + allocSmallIdx() * smallSize;
-      case kernelpl: return baseAddress + allocLargeIdx() * largeSize;
-      default:       KABORT1(N);
-    }
+    return baseAddress + fmap.FrameMap<N>::alloc(_friend<FrameManager>()) * pagesize<N>();
   }
 
-  paddr allocRegion( size_t& size, paddr align, paddr lim );
-
-  void release( paddr addr, size_t size ) {
-    KASSERT1( aligned(addr, smallSize), addr );
-    KASSERT1( aligned(size, smallSize), size );
-    ScopedLock<> sl(lock);
-    while (size > 0) {
-      zeroFrames.set(addr / smallSize);
-      addr += smallSize;
-      size -= smallSize;
-    }
-  }
-
-  bool zeroMemory() {
-    ScopedLock<> sl(lock);
-    return zeroInternal();
+  paddr allocRegion( size_t& size, paddr align, paddr limitAddress ) {
+    KASSERT1(align <= smallps, FmtHex(align));
+    size = align_up(size, smallps);
+    KASSERT1(size <= pagesize<smallpl+1>(), FmtHex(size));
+    limitAddress -= size;
+    size_t cnt = size / smallps;
+    size_t lim = (limitAddress - baseAddress) / smallps;
+    return baseAddress + fmap.allocRegion(cnt, lim, memRange) * smallps;
   }
 
   static FrameManager& curr() {

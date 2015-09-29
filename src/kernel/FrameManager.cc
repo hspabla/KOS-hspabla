@@ -17,88 +17,28 @@
 #include "kernel/FrameManager.h"
 #include "machine/Paging.h"
 
-ostream& operator<<(ostream& os, const FrameManager& fm) {
-  ScopedLock<> sl(const_cast<FrameManager&>(fm).lock);
-  size_t top = (fm.topAddress - fm.baseAddress) / fm.largeSize;
+void FrameZero(vaddr vma, paddr pma, size_t offset, size_t size, _friend<FrameManager> ff) {
+  Paging::mapPage<kernelpl>(vma, pma, Paging::Data, ff);
+  DBG::outl(DBG::Frame, "FM/zero: ", FmtHex(pma + offset), '/', FmtHex(size));
+  memset((ptr_t)(vma + offset), 0, size);
+  Paging::unmap<kernelpl>(vma, ff);
+}
+
+template<size_t PL>
+inline void FrameMap<PL>::print(ostream& os, paddr base, size_t range) {
+  ScopedLock<> sl(lock);
+  size_t max = range / fsize;
   size_t idx = 0;
   size_t cnt;
-  while ((cnt = fm.largeFrames.findrange(idx, top))) {
-    os << ' ' << FmtHex(fm.baseAddress + fm.largeSize * idx)
-       << '-' << FmtHex(fm.baseAddress + fm.largeSize * (idx+cnt));
+  while ((cnt = frames.findrange(idx, max))) {
+    os << ' ' << FmtHex(base + fsize * idx)
+       << '-' << FmtHex(base + fsize * (idx+cnt));
     idx += cnt;
   }
-  top = (fm.topAddress - fm.baseAddress) / fm.smallSize;
-  idx = 0;
-  while ((cnt = fm.smallFrames.findrange(idx, top))) {
-    os << ' ' << FmtHex(fm.baseAddress + fm.smallSize * idx)
-       << '-' << FmtHex(fm.baseAddress + fm.smallSize * (idx+cnt));
-    idx += cnt;
-  }
+  FrameMap<PL+1>::print(os, base, range);
+}
+
+ostream& operator<<(ostream& os, const FrameManager& fm) {
+  const_cast<FrameManager&>(fm).fmap.print(os, fm.baseAddress, fm.memRange);
   return os;
-}
-
-paddr FrameManager::allocRegion(size_t& size, paddr align, paddr lim) {
-  KASSERT1(lim >= baseAddress, FmtHex(lim));
-  ScopedLock<> sl(lock);
-  if (size < largeSize) {                // search in small frames first
-    size = align_up(size, smallSize);
-    lim = lim - size;
-    size_t target = size / smallSize;
-    size_t top = (topAddress - baseAddress) / smallSize;
-    for (size_t c, idx = 0; (c = smallFrames.findrange(idx, top)); idx += c) {
-      paddr addr = baseAddress + smallSize * idx;
-      if ((c >= target) && (addr <= lim)) {
-        // clear entries in small frame bitmap
-        for (size_t i = 0; i < target; i += 1) smallFrames.clr(idx + i);
-        DBG::outl(DBG::Frame, "FM/allocC1: ", FmtHex(addr), '/', size);
-        return addr;
-      }
-    }
-    size_t idx = largeFrames.find();     // try splitting a large frame
-    if (idx != limit<size_t>()) {
-      paddr addr = largeSize * idx;
-      if (addr <= lim) {
-        // remove from large frame bitmap
-        largeFrames.clr(idx);
-        // convert from large to small idx
-        idx = idx * ptentries;
-        // set leftover entries in small frame bitmap
-        for (size_t i = target; i < ptentries; i += 1) smallFrames.set(idx + i);
-        DBG::outl(DBG::Frame, "FM/allocC2: ", FmtHex(addr), '/', size);
-        return addr;
-      }
-    }
-  } else {                               // search for block in large frames
-    size = align_up(size, largeSize);
-    lim = lim - size;
-    size_t target = size / largeSize;
-    size_t top = (topAddress - baseAddress) / largeSize;
-    for (size_t c, idx = 0; (c = largeFrames.findrange(idx, top)); idx += c) {
-      paddr addr = baseAddress + largeSize * idx;
-      if ((c >= target) && (addr <= lim)) {
-        for (size_t i = 0; i < target; i += 1) largeFrames.clr(idx + i);
-        DBG::outl(DBG::Frame, "FM/allocC3: ", FmtHex(addr), '/', FmtHex(size));
-        return addr;
-      }
-    }
-  }
-  KABORTN(FmtHex(size), ' ', FmtHex(align), ' ', FmtHex(lim));
-}
-
-bool FrameManager::zeroInternal() { // uses 2M page mappings
-  size_t idx = zeroFrames.find();
-  if (idx == limit<size_t>()) return false;
-  zeroFrames.clr(idx);
-  lock.release();
-  paddr pma = idx * smallSize;
-  paddr apma = align_down(pma, largeSize);
-  size_t offset = pma - apma;
-  vaddr vma = zeroBase + largeSize * LocalProcessor::getIndex();
-  Paging::mapPage<kernelpl>(vma, apma, Paging::Data, _friend<FrameManager>());
-  DBG::outl(DBG::Frame, "FM/zero: ", FmtHex(pma), '/', FmtHex(smallSize));
-  memset((ptr_t)(vma + offset), 0, smallSize);
-  Paging::unmap<kernelpl>(vma, _friend<FrameManager>());
-  lock.acquire();
-  releaseInternal(idx);
-  return true;
 }

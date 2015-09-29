@@ -48,7 +48,7 @@ static_assert(sizeof(uint64_t) == sizeof(mword), "mword != uint64_t" );
 static_assert(sizeof(size_t) == sizeof(mword), "mword != size_t");
 static_assert(sizeof(ptr_t) == sizeof(mword), "mword != ptr_t");
 static_assert(sizeof(APIC) == 0x400, "sizeof(APIC) != 0x400" );
-static_assert(sizeof(APIC) <= pagesize<1>(), "sizeof(APIC) <= pagesize<1>()" );
+static_assert(sizeof(APIC) <= smallps, "sizeof(APIC) <= smallps" );
 static_assert(sizeof(InterruptDescriptor) == 2 * sizeof(mword), "sizeof(InterruptDescriptor) != 2 * sizeof(mword)" );
 static_assert(sizeof(SegmentDescriptor) == sizeof(mword), "sizeof(SegmentDescriptor) != sizeof(mword)" );
 
@@ -84,7 +84,7 @@ static PIT pit;
 
 // interrupt descriptor tables
 static const unsigned int maxIDT = 256;
-static InterruptDescriptor idt[maxIDT]                __aligned(pagesize<1>());
+static InterruptDescriptor idt[maxIDT]                      __aligned(smallps);
 
 // CPU information
 mword Machine::processorCount = 0;
@@ -138,7 +138,7 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   memset((char*)&__KernelBss, 0, &__KernelBssEnd - &__KernelBss);
 
   // static memory to back temporary heap during bootstrap
-  static const size_t bootHeapSize = 16 * pagesize<1>();
+  static const size_t bootHeapSize = 16 * smallps;
   static buf_t bootHeap[bootHeapSize]                  __section(".boot.data");
 
   // create temporary boot heap, so that ctors & RegionMap can use malloc/free
@@ -196,7 +196,7 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   RegionSet<Region<paddr>> memtmp, mem;
   Multiboot::getMemory( memtmp );
   for (auto it = memtmp.begin(); it != memtmp.end(); ) {
-    mem.insert( Region<paddr>(align_up(it->start, pagesize<1>()), align_down(it->end, pagesize<1>())) );
+    mem.insert( Region<paddr>(align_up(it->start, smallps), align_down(it->end, smallps)) );
     it = memtmp.erase(it);
   }
   KASSERT0(!mem.empty());
@@ -263,7 +263,7 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
 
   // process IOAPIC/IRQ information -> mask all IOAPIC interrupts for now
   for (const pair<uint32_t,paddr>&iop : ioApicMap) {
-    Paging::mapPage<1>(ioApicAddr, iop.second, Paging::MMapIO, _friend<Machine>());
+    Paging::mapPage<smallpl>(ioApicAddr, iop.second, Paging::MMapIO, _friend<Machine>());
     mword rdr = MappedIOAPIC()->getRedirects() + 1;
     for (mword x = 0; x < rdr; x += 1 ) {
       MappedIOAPIC()->maskIRQ(x);
@@ -279,7 +279,7 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
         irqTable[irqnum].globalIrq     = irqnum;
       }
     }
-    Paging::unmap<1>(ioApicAddr, _friend<Machine>());
+    Paging::unmap<smallpl>(ioApicAddr, _friend<Machine>());
   }
 
   // NOTE: could use broadcast and ticket lock sequencing in Machine::initBSP2()
@@ -301,7 +301,7 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   Paging::bootstrap3(processorCount, _friend<Machine>());
 
   // map APIC page, use APIC ID to determine bspIndex
-  Paging::mapPage<1>(apicAddr, apicPhysAddr, Paging::MMapIO, _friend<Machine>());
+  Paging::mapPage<smallpl>(apicAddr, apicPhysAddr, Paging::MMapIO, _friend<Machine>());
   bspApicID = MappedAPIC()->getID();
   for (bspIndex = 0; bspIndex < processorCount; bspIndex += 1) {
     if (processorTable[bspIndex].apicID == bspApicID) break;
@@ -332,7 +332,7 @@ void Machine::initBSP2() {
 
   // remap screen page high, before low memory paging entries disappear
   // and before multiple cores start accessing screen
-  Paging::mapPage<1>(videoAddr, Paging::vtop(Screen::getAddress(_friend<Machine>())), Paging::MMapIO, _friend<Machine>());
+  Paging::mapPage<smallpl>(videoAddr, Paging::vtop(Screen::getAddress(_friend<Machine>())), Paging::MMapIO, _friend<Machine>());
   Screen::setAddress(videoAddr, _friend<Machine>());
 
   DBG::outl(DBG::Boot, "********** MULTI CORE **********");
@@ -464,7 +464,7 @@ void Machine::mapIrq(mword irq, mword vector) {
   static SpinLock ioapicLock;
   mword irqmod = irqTable[irq].globalIrq;
   DBG::outl(DBG::Basic, "IRQ mapping: ", FmtHex(irq), '/', FmtHex(irqTable[irqmod].ioApicIrq), " -> ", FmtHex(vector));
-  Paging::mapPage<1>(ioApicAddr, irqTable[irqmod].ioApicAddr, Paging::MMapIO, _friend<Machine>());
+  Paging::mapPage<smallpl>(ioApicAddr, irqTable[irqmod].ioApicAddr, Paging::MMapIO, _friend<Machine>());
   if (vector) {
     ScopedLock<> sl(ioapicLock);
     // TODO: program IOAPIC with polarity/trigger (ACPI flags), if necessary
@@ -473,7 +473,7 @@ void Machine::mapIrq(mword irq, mword vector) {
     ScopedLock<> sl(ioapicLock);
     MappedIOAPIC()->maskIRQ( irqTable[irqmod].ioApicIrq );
   }
-  Paging::unmap<1>(ioApicAddr, _friend<Machine>());
+  Paging::unmap<smallpl>(ioApicAddr, _friend<Machine>());
 }
 
 void Machine::registerIrqSync(mword irq, mword vector) {

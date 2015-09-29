@@ -59,6 +59,8 @@ static constexpr size_t pageoffset(mword addr) {
   return addr & bitmask<mword>(pagesizebits<N>());
 }
 
+static const size_t smallpl      = 1;
+static const size_t smallps      = pagesize<smallpl>();
 static const size_t pagetablepl  = 1;
 static const size_t pagetableps  = pagesize<pagetablepl>();
 static const size_t kernelpl     = 2;
@@ -85,11 +87,11 @@ static const vaddr  deviceAddr = ((ptentries - 1) * pagesize<pagelevels>()) | ca
 static_assert(deviceAddr >= kerneltop, "deviceAddr < kerneltop");
 
 // hard-coded device & special mappings -> last 512G segment of virtual memory
-static const vaddr   apicAddr  = deviceAddr + 0 * pagesize<1>();
-static const vaddr ioApicAddr  = deviceAddr + 1 * pagesize<1>();
-static const vaddr  videoAddr  = deviceAddr + 2 * pagesize<1>();
-static const vaddr  cloneBase  = deviceAddr + 3 * pagesize<1>();
-static const vaddr  deviceEnd  = deviceAddr + 4 * pagesize<1>();
+static const vaddr   apicAddr  = deviceAddr + 0 * smallps;
+static const vaddr ioApicAddr  = deviceAddr + 1 * smallps;
+static const vaddr  videoAddr  = deviceAddr + 2 * smallps;
+static const vaddr  cloneBase  = deviceAddr + 3 * smallps;
+static const vaddr  deviceEnd  = deviceAddr + 4 * smallps;
 static_assert(vaddr(KERNBASE) >= deviceEnd, "KERNBASE < deviceEnd");
 
 // thread stack constants

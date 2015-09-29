@@ -17,9 +17,9 @@
 #ifndef _AddressSpace_h_
 #define _AddressSpace_h_ 1
 
-#include "runtime/Runtime.h"
-#include "kernel/SystemProcessor.h"
 #include "kernel/FrameManager.h"
+#include "kernel/KernelHeap.h"
+#include "kernel/SystemProcessor.h"
 #include "machine/Paging.h"
 
 #include "extern/stl/mod_set"

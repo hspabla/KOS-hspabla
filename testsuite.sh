@@ -19,14 +19,16 @@ function runtest() {
 
 if [ $# -ge 1 ]; then
 	while true; do
-		for target in ${*}; do
-			runtest "" $target
+		for flags in "" "CC=clang"; do
+			for target in ${*}; do
+				runtest "$flags" "$target"
+			done
 		done
 	done
 	exit 0
 fi
-		
-for compile in gcc clang # gccdebug clangdebug
+
+for compile in gcc clang gccdebug clangdebug
 do
 	make clean
 	case $compile in
