@@ -85,31 +85,20 @@ paddr FrameManager::allocRegion(size_t& size, paddr align, paddr lim) {
   KABORTN(FmtHex(size), ' ', FmtHex(align), ' ', FmtHex(lim));
 }
 
-void FrameManager::zeroInternal() {
-  // get memory region from queue
-  ZeroDescriptor* zd = zeroQueue.front();
-  zeroQueue.pop_front();
-  // drop FM lock, then delete ZD object without holding lock
+bool FrameManager::zeroInternal() { // uses 2M page mappings
+  size_t idx = zeroFrames.find();
+  if (idx == limit<size_t>()) return false;
+  zeroFrames.clr(idx);
   lock.release();
-  paddr addr = zd->addr;
-  size_t size = zd->size;
-  zdCache.deallocate(zd);
-
-  // map (using 2M pages) and zero memory without holding FM lock
-  while (size > 0) {
-    paddr astart = align_down(addr, largeSize);
-    size_t offset = addr - astart;
-    size_t zsize = min(size, largeSize - offset);
-    vaddr v = LocalProcessor::getZeroAddr();
-    Paging::mapPage<kernelpl>(v, astart, Paging::Data, _friend<FrameManager>());
-    DBG::outl(DBG::Frame, "FM/zero: ", FmtHex(astart), '/', FmtHex(addr), '/', FmtHex(zsize));
-    memset((ptr_t)(v + offset), 0, zsize);
-    Paging::unmap<kernelpl>(v, _friend<FrameManager>());
-    // re-acquire FM lock and make frames available for future allocation
-    lock.acquire();
-    releaseInternal(addr, zsize);
-    lock.release();
-    addr += zsize;
-    size -= zsize;
-  }
+  paddr pma = idx * smallSize;
+  paddr apma = align_down(pma, largeSize);
+  size_t offset = pma - apma;
+  vaddr vma = zeroBase + largeSize * LocalProcessor::getIndex();
+  Paging::mapPage<kernelpl>(vma, apma, Paging::Data, _friend<FrameManager>());
+  DBG::outl(DBG::Frame, "FM/zero: ", FmtHex(pma), '/', FmtHex(smallSize));
+  memset((ptr_t)(vma + offset), 0, smallSize);
+  Paging::unmap<kernelpl>(vma, _friend<FrameManager>());
+  lock.acquire();
+  releaseInternal(idx);
+  return true;
 }

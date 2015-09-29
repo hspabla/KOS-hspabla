@@ -34,62 +34,53 @@ class FrameManager {
   SpinLock lock;
   HierarchicalBitmap<ptentries,framebits-pagesizebits<kernelpl>()> largeFrames;
   HierarchicalBitmap<ptentries,framebits-pagesizebits<1>()> smallFrames;
+  HierarchicalBitmap<ptentries,framebits-pagesizebits<1>()> zeroFrames;
 
   static const size_t largeSize = kernelps;
   static const size_t smallSize = pagesize<1>();
 
-  struct ZeroDescriptor : public IntrusiveList<ZeroDescriptor>::Link {
-    paddr addr;
-    size_t size;
-    ZeroDescriptor(paddr a, size_t s) : addr(a), size(s) {}
-  };
-  IntrusiveList<ZeroDescriptor> zeroQueue;
-  HeapCache<sizeof(ZeroDescriptor)> zdCache;
-
   paddr baseAddress;
   paddr topAddress;
 
-  void releaseInternal(paddr addr, size_t size) {
-    DBG::outl(DBG::Frame, "FM/release: ", FmtHex(addr), '/', FmtHex(size));
-    KASSERT1( aligned(addr, smallSize), addr );
-    KASSERT1( aligned(size, smallSize), size );
-    while (size > 0) {
-      if (aligned(addr, largeSize) && size >= largeSize) {
-        largeFrames.set(addr / largeSize);
-        addr += largeSize;
-        size -= largeSize;
-      } else {
-        size_t idx = addr / smallSize;
-        smallFrames.set(idx);
-        addr += smallSize;
-        size -= smallSize;
-        // check for full small bitmap -> mark large page as free
-        if (aligned(addr, largeSize) && smallFrames.blockfull(idx)) {
-          smallFrames.blockclr(idx);
-          largeFrames.set(idx / ptentries);
-        }
-      }
+  void releaseInternal(size_t idx) {
+    DBG::outl(DBG::Frame, "FM/release: ", FmtHex(idx * smallSize));
+    smallFrames.set(idx);
+    // check for full small bitmap -> mark large page as free
+    if (smallFrames.blockfull(idx)) {
+      smallFrames.blockclr(idx);
+      largeFrames.set(idx / ptentries);
     }
   }
 
   size_t allocLargeIdx() {
-    size_t idx = largeFrames.find();
-    KASSERT1(idx != limit<size_t>(), "OUT OF MEMORY");
+    size_t idx;
+    for (;;) {
+      idx = largeFrames.find();
+      if (idx != limit<size_t>()) break;
+      if (!zeroInternal()) KABORT1("OUT OF MEMORY");
+    }
     largeFrames.clr(idx);
     DBG::outl(DBG::Frame, "FM/allocL: ", FmtHex(idx * largeSize), '/', FmtHex(largeSize));
     return idx;
   }
 
   paddr allocSmallIdx() {
-    size_t idx = smallFrames.find();
-    if (idx == limit<size_t>()) {
-      idx = allocLargeIdx() * ptentries;
-      smallFrames.blockset(idx);
+    size_t idx;
+    for (;;) {
+      idx = smallFrames.find();
+      if (idx != limit<size_t>()) break;
+      if (!zeroInternal()) {
+        idx = allocLargeIdx() * ptentries;
+        smallFrames.blockset(idx);
+        break;
+      }
     }
     smallFrames.clr(idx);
     DBG::outl(DBG::Frame, "FM/allocS: ", FmtHex(idx * smallSize), '/', FmtHex(smallSize));
     return idx;
   }
+
+  bool zeroInternal();
 
 public:
   FrameManager() {} // do not initialize baseAddress, topAddress!
@@ -98,7 +89,8 @@ public:
     baseAddress = bot;
     topAddress = top;
     return largeFrames.allocsize(divup(top - bot, largeSize))
-         + smallFrames.allocsize(divup(top - bot, smallSize));
+         + smallFrames.allocsize(divup(top - bot, smallSize))
+         +  zeroFrames.allocsize(divup(top - bot, smallSize));
   }
 
   void init( bufptr_t p ) {
@@ -106,48 +98,37 @@ public:
     largeFrames.init(divup(size, largeSize), p);
     p += largeFrames.allocsize(divup(size, largeSize));
     smallFrames.init(divup(size, smallSize), p);
+    p += smallFrames.allocsize(divup(size, smallSize));
+    zeroFrames.init(divup(size, smallSize), p);
   }
 
   template<size_t N>
   inline paddr allocFrame() {
     ScopedLock<> sl(lock);
-    paddr result;
     switch (N) {
-      case 1:        result = baseAddress + allocSmallIdx() * smallSize; break;
-      case kernelpl: result = baseAddress + allocLargeIdx() * largeSize; break;
-      default: KABORT1(N);
+      case 1:        return baseAddress + allocSmallIdx() * smallSize;
+      case kernelpl: return baseAddress + allocLargeIdx() * largeSize;
+      default:       KABORT1(N);
     }
-    zeroLowWatermark();
-    return result;
   }
+
+  paddr allocRegion( size_t& size, paddr align, paddr lim );
 
   void release( paddr addr, size_t size ) {
-    // allocate ZD object before acquiring lock
-    ZeroDescriptor* zd = new (zdCache.allocate()) ZeroDescriptor(addr, size);
+    KASSERT1( aligned(addr, smallSize), addr );
+    KASSERT1( aligned(size, smallSize), size );
     ScopedLock<> sl(lock);
-    zeroQueue.push_back(*zd);
-    zeroLowWatermark();
-  }
-
-  void zeroLowWatermark() {
-    // TODO: address impending memory shortage -> not bullet-proof!
-    while (largeFrames.empty() && !zeroQueue.empty()) {
-      zeroInternal();
-      lock.acquire();
+    while (size > 0) {
+      zeroFrames.set(addr / smallSize);
+      addr += smallSize;
+      size -= smallSize;
     }
   }
 
   bool zeroMemory() {
-    lock.acquire();
-    bool zero = !zeroQueue.empty();
-    if fastpath(zero) zeroInternal();
-    else lock.release();
-    return zero;
+    ScopedLock<> sl(lock);
+    return zeroInternal();
   }
-
-  void zeroInternal(); // drops the lock
-
-  paddr allocRegion( size_t& size, paddr align, paddr lim );
 
   static FrameManager& curr() {
     FrameManager* fm = LocalProcessor::getCurrFM(_friend<FrameManager>());

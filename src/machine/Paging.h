@@ -343,7 +343,7 @@ inline constexpr vaddr Paging::end() {
 inline void Paging::clone(paddr newpt) {
   DBG::outl(DBG::Paging, "Paging::clone - PML4: ", FmtHex(newpt));
   // obtain per-processor clone address and lock processor
-  vaddr cloneAddr = LocalProcessor::getCloneAddr();
+  vaddr cloneAddr = cloneBase + pagetableps * LocalProcessor::getIndex();
   LocalProcessor::lock();
   // map PML4 page
   mapPage<pagetablepl>(cloneAddr, newpt, Data | Kernel);

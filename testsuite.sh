@@ -26,7 +26,7 @@ if [ $# -ge 1 ]; then
 	exit 0
 fi
 		
-for compile in gcc clang gccdebug clangdebug
+for compile in gcc clang # gccdebug clangdebug
 do
 	make clean
 	case $compile in

@@ -22,7 +22,7 @@
 #include "machine/APIC.h"
 #include "machine/CPU.h"
 #include "machine/Descriptors.h"
-#include "machine/Memory.h" // cloneBase, zeroBase, apicAddr, ioApicAddr
+#include "machine/Memory.h" // apicAddr, ioApicAddr
 
 class Thread;
 class FrameManager;
@@ -190,13 +190,6 @@ public:
     const mword o = offsetof(Context, tss) + offsetof(TaskStateSegment, rsp);
     static_assert(o == TSSRSP, "TSSRSP");
     set<Thread*, o>(currThread);            // Thread* = top of stack
-  }
-
-  static vaddr getCloneAddr() {
-    return cloneBase + pagetableps * getIndex();
-  }
-  static vaddr getZeroAddr() {
-    return zeroBase + kernelps * getIndex();
   }
 };
 
