@@ -30,12 +30,12 @@ class Process : public AddressSpace {
     vaddr stackAddr;          // bottom of allocated memory for thread/stack
     size_t stackSize;         // size of allocated memory
     CPU::ExtraContext ectx;  // fs/gs registers
-    UserThread(vaddr ksb, size_t kss) : JoinableThread(ksb, kss) {}
-    static inline UserThread* create(size_t kss = defaultStack) {
+    UserThread(vaddr ksb, size_t kss, Process& p) : JoinableThread(ksb, kss, p) {}
+    static inline UserThread* create(Process& p, size_t kss = defaultStack) {
       vaddr mem = kernelAS.allocStack(kss);
       vaddr This = mem + kss - sizeof(UserThread);
       DBG::outl(DBG::Threads, "UserThread create: ", FmtHex(mem), '/', FmtHex(kss), '/', FmtHex(This));
-      return new (ptr_t(This)) UserThread(mem, kss);
+      return new (ptr_t(This)) UserThread(mem, kss, p);
     }
   };
 
@@ -92,7 +92,7 @@ public:
 };
 
 static inline Process& CurrProcess() {
-  AddressSpace& as = CurrAS();
+  AddressSpace& as = CurrThread()->getMemCtx();
   KASSERT0(&as != &defaultAS);
   return reinterpret_cast<Process&>(as);
 }

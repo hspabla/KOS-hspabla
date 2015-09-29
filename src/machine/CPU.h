@@ -282,7 +282,7 @@ namespace CPU {
 
 // TODO: handle unsupported CPUID requests...
 class CPUID : public NoObject {
-  friend class HardwareProcessor;
+  friend class Processor;
 
   struct RetCode {
     uint32_t a;

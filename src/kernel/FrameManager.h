@@ -18,9 +18,10 @@
 #define _FrameManager_h_ 1
 
 #include "generic/Bitmap.h"
-#include "runtime/VirtualProcessor.h"
+#include "generic/IntrusiveContainers.h"
 #include "kernel/KernelHeap.h"
 #include "kernel/Output.h"
+#include "machine/Processor.h"
 
 class Machine;
 
@@ -148,13 +149,13 @@ public:
 
   paddr allocRegion( size_t& size, paddr align, paddr lim );
 
-  static FrameManager& CurrFM() {
-    FrameManager* fm = Runtime::thisProcessor()->frameManager;
+  static FrameManager& curr() {
+    FrameManager* fm = LocalProcessor::getCurrFM(_friend<FrameManager>());
     KASSERT0(fm);
     return *fm;
   }
 };
 
-static inline FrameManager& CurrFM() { return FrameManager::CurrFM(); }
+static FrameManager& CurrFM() { return FrameManager::curr(); }
 
 #endif /* _FrameManager_h_ */

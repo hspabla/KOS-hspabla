@@ -14,17 +14,14 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ******************************************************************************/
+#include "runtime/RuntimeImpl.h"
+#include "runtime/Thread.h"
 #include "kernel/AddressSpace.h"
 #include "kernel/Output.h"
 #include "machine/APIC.h"
-#include "machine/HardwareProcessor.h"
+#include "machine/Processor.h"
 
-void HardwareProcessor::init0() {
-  MSR::write(MSR::GS_BASE, mword(this)); // store 'this' in gs
-  MSR::write(MSR::KERNEL_GS_BASE, 0);    // later: store user value in shadow gs
-}
-
-void HardwareProcessor::init1(paddr pml4, bool output) {
+void Processor::init(paddr pml4, bool output, InterruptDescriptor* idtTable, size_t idtSize) {
   DBG::Level dl = output ? DBG::Basic : DBG::MaxLevel;
   DBG::outl(dl, "*********** CPU INFO ***********");
   DBG::out1(dl, "checking BSP capabilities:");
@@ -43,6 +40,7 @@ void HardwareProcessor::init1(paddr pml4, bool output) {
   if (CPUID::FSGSBASE())       DBG::out1(dl, " FSGSBASE");
   if (CPUID::Page1G())         DBG::out1(dl, " Page1G");
   DBG::outl(dl);
+
   MSR::enableNX();                                   // enable NX paging bit
   CPU::writeCR4(CPU::readCR4() | CPU::PGE());        // enable  G paging bit
 //  CPU::writeCR4(CPU::readCR4() | CPU::FSGSBASE());    // enable fs/gs base instructions
@@ -51,9 +49,9 @@ void HardwareProcessor::init1(paddr pml4, bool output) {
   // CPU::writeCR0(CPU::readCR0() | CPU::MP());         // enable monitor coprocessor
   CPU::writeCR0(CPU::readCR0() & ~(CPU::EM()));      // disable x87 emulation
   if (pml4 != topaddr) CPU::writeCR3(pml4);          // install page tables
-}
 
-void HardwareProcessor::init2(InterruptDescriptor* idtTable, size_t idtSize) {
+  Context::install();
+
   memset(gdt, 0, sizeof(gdt)); // set up GDT
   setupGDT(kernCS, 0, true);
   setupGDT(kernDS, 0, false);  // DPL *mostly* ignored for data selectors (except for iret)
@@ -66,7 +64,7 @@ void HardwareProcessor::init2(InterruptDescriptor* idtTable, size_t idtSize) {
   loadIDT(idtTable, idtSize);  // install interrupt table
 }
 
-void HardwareProcessor::init4() {
+void Processor::startup(BaseScheduler& sched, funcvoid0_t func) {
   MSR::enableSYSCALL();                               // enable syscall/sysret
   // top  16 bits: index 2 = userDS - 1 = userCS - 2; * 8 (selector size) + 3 (CPL); userDS follows this index, followed by userCS
   // next 16 bits: index 1 = kernCS     = kernDS - 1; * 8 (selector size) + 0 (CPL); kernCS is at   this index, followed by kernDS
@@ -84,9 +82,16 @@ void HardwareProcessor::init4() {
   tss.ist[dbfIST-1] = fstack;
   tss.ist[stfIST-1] = fstack;
   DBG::outl(DBG::Basic, "Fault Stack for ", index, " at ", FmtHex(fstack));
+
+  Thread* idleThread = Thread::create(idleStack);
+  idleThread->setScheduler(sched)->setAffinity(true)->setPriority(idlePriority);
+  idleThread->setup((ptr_t)Runtime::idleLoop);
+  idleThread->resume();
+  currThread = Thread::create(defaultStack);
+  currThread->setScheduler(sched)->setAffinity(true)->direct((ptr_t)func);
 }
 
-void HardwareProcessor::setupGDT(unsigned int number, unsigned int dpl, bool code) {
+void Processor::setupGDT(unsigned int number, unsigned int dpl, bool code) {
   KASSERT1(number < maxGDT, number);
   KASSERT1(dpl < 4, dpl);
   gdt[number].RW = 1;
@@ -97,7 +102,7 @@ void HardwareProcessor::setupGDT(unsigned int number, unsigned int dpl, bool cod
   gdt[number].L = 1;
 }
 
-void HardwareProcessor::setupTSS(unsigned int number, paddr address) {
+void Processor::setupTSS(unsigned int number, paddr address) {
   SystemDescriptor* tssDesc = (SystemDescriptor*)&gdt[number];
   tssDesc->Limit00 = 0xffff;
   tssDesc->Base00 = (address & 0x000000000000FFFF);

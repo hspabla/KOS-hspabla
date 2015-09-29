@@ -1,0 +1,31 @@
+#ifndef _mod_set_
+#define _mod_set_ 1
+
+#include <set>
+using namespace std;
+#include "mod_stl_tree.h"  
+#include "mod_stl_set.h"
+#include "mod_stl_multiset.h"
+#include "mod_allocator.h"
+
+template <typename _Key, size_t shift = 0, typename _Compare = std::less<_Key>>
+using InPlaceStdSet = modstd::set<_Key,_Compare,InPlaceAllocator<_Key,shift>>;
+
+template <typename _Key, typename _Compare = std::less<_Key>>
+using IntrusiveStdSet = modstd::set<_Key,_Compare,IntrusiveAllocator<_Key>>;
+
+template <typename _Key, size_t shift = 0, typename _Compare = std::less<_Key>>
+using InPlaceStdMultiset = modstd::set<_Key,_Compare,InPlaceAllocator<_Key,shift>>;
+
+template <typename _Key, typename _Compare = std::less<_Key>>
+using IntrusiveStdMultiset = modstd::set<_Key,_Compare,IntrusiveAllocator<_Key>>;
+
+template <typename T>
+class mod_set_elem {
+	char _linkage[sizeof(modstd::_Rb_tree_node<T>)];
+	static_assert(sizeof(_linkage) >= sizeof(uintptr_t), "mod_set_elem");
+public:
+	uintptr_t alloc() const { return (uintptr_t)(_linkage); }
+};
+
+#endif /* _mod_set_ */

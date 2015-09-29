@@ -15,7 +15,6 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ******************************************************************************/
 #include "runtime/Thread.h"
-#include "kernel/AddressSpace.h"
 #include "kernel/Clock.h"
 #include "kernel/FrameManager.h"
 #include "kernel/KernelHeap.h"
@@ -24,7 +23,6 @@
 #include "machine/asmdecl.h"
 #include "machine/APIC.h"
 #include "machine/Machine.h"
-#include "machine/Paging.h"
 #include "devices/Keyboard.h"
 #include "devices/PCI.h"
 #include "devices/PIT.h"
@@ -70,11 +68,11 @@ extern const char __KernelBss,   __KernelBssEnd;
 extern const char __MultibootHdr;
 
 // various helpers during bootstrap
-static size_t boot16Size      __section(".boot.data"); // size of AP boot sector
-static vaddr kernelEnd        __section(".boot.data"); // passed from initBSP to bootCleanup
-static volatile mword apIndex __section(".boot.data"); // enumerate APs
-static paddr pml4addr         __section(".boot.data"); // root of kernel AS
-static VirtualProcessor bootProcessor __section(".boot.data"); // boot processor object
+static size_t boot16Size       __section(".boot.data"); // size of AP boot sector
+static vaddr kernelEnd         __section(".boot.data"); // passed from initBSP to bootCleanup
+static volatile mword apIndex  __section(".boot.data"); // enumerate APs
+static paddr pml4addr          __section(".boot.data"); // root of kernel AS
+static SystemProcessor bootProcessor __section(".boot.data"); // boot processor object
 
 // global frame manager objects
 static FrameManager frameManager;
@@ -90,7 +88,7 @@ static InterruptDescriptor idt[maxIDT]                __aligned(pagesize<1>());
 
 // CPU information
 mword Machine::processorCount = 0;
-VirtualProcessor* Machine::processorTable = nullptr;
+SystemProcessor* Machine::processorTable = nullptr;
 static mword bspIndex = ~mword(0);
 static mword bspApicID = ~mword(0);
 
@@ -119,8 +117,8 @@ static Semaphore asyncIrqSem;
 // init routine for APs: on boot stack and using identity paging
 void Machine::initAP(mword idx) {
   KASSERT1(idx == apIndex, idx);
-  processorTable[apIndex].SystemProcessor::initAll(pml4addr, idt, sizeof(idt), processorTable[apIndex], frameManager);
-  processorTable[apIndex].VirtualProcessor::start(initAP2);
+  processorTable[apIndex].init(pml4addr, false, idt, sizeof(idt));
+  processorTable[apIndex].start(initAP2);
 }
 
 // on proper stack, processor initialized
@@ -130,7 +128,7 @@ void Machine::initAP2() {
   DBG::outl(DBG::Boot, "Enabling AP interrupts...");
   LocalProcessor::initInterrupts(false);       // enable interrupts (off boot stack)
   DBG::outl(DBG::Boot, "Finishing AP boot thread...");
-  Runtime::thisProcessor()->terminate(); // idle thread takes over
+  CurrThread()->terminate(); // idle thread takes over
 }
 
 // init routine for BSP, on boot stack and identity paging
@@ -147,7 +145,7 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   KernelHeap::init0( (vaddr)bootHeap, sizeof(bootHeap) );
 
   // set up boot processor for lock counter -> output/malloc uses spinlock
-  bootProcessor.HardwareProcessor::init0();
+  bootProcessor.install();
 
   // initialize multiboot & debugging: no debug options before this point!
   vaddr mbiEnd = Multiboot::init(magic, mbiAddr);
@@ -169,8 +167,7 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   setupIDTable();
 
   // check processor, set paging bits, print results, set up IDT
-  bootProcessor.HardwareProcessor::init1(topaddr, true);
-  bootProcessor.HardwareProcessor::init2(idt, sizeof(idt));
+  bootProcessor.init(topaddr, true, idt, sizeof(idt));
 
   // print MBI info, get RSDP, re-init debugging to print debug options
   paddr rsdp = Multiboot::init2();
@@ -245,8 +242,7 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   DBG::outl(DBG::Boot, "AS/init: ", defaultAS);
 
   // set frame manager & address space in boot processor -> needed for page mappings
-  bootProcessor.HardwareProcessor::init3(bootProcessor);
-  bootProcessor.SystemProcessor::init0(frameManager);
+  bootProcessor.setup(0, 0, 0, frameManager);
 
   // initialize frame manager after rerun of constructors
   frameManager.init((bufptr_t)(kerneltop - fmMemory));
@@ -290,14 +286,14 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   // determine processorCount and create processorTable
   KASSERT0(apicMap.size());
   processorCount = apicMap.size();
-  processorTable = knewN<VirtualProcessor>(processorCount);
+  processorTable = knewN<SystemProcessor>(processorCount);
   mword coreIdx = 0;
   for (const pair<uint32_t,uint32_t>& ap : apicMap) {
-    VirtualProcessor& p = processorTable[ coreIdx];
-    VirtualProcessor& q = processorTable[(coreIdx + 1) % processorCount];
-    p.setup(coreIdx, ap.second, ap.first);
-    p.getScheduler()->setPeer(q.getScheduler());
-    DBG::outl(DBG::Boot, "Scheduler ", coreIdx, " at ", FmtHex(p.getScheduler()));
+    SystemProcessor& p = processorTable[ coreIdx];
+    SystemProcessor& q = processorTable[(coreIdx + 1) % processorCount];
+    p.setup(coreIdx, ap.second, ap.first, frameManager);
+    p.getScheduler().setPeer(q.getScheduler());
+    DBG::outl(DBG::Boot, "Scheduler ", coreIdx, " at ", FmtHex(&p.getScheduler()));
     coreIdx += 1;
   }
 
@@ -314,8 +310,8 @@ void Machine::initBSP(mword magic, vaddr mbiAddr, mword idx) {
   DBG::outl(DBG::Boot, "CPUs: ", processorCount, '/', bspIndex, '/', bspApicID);
 
   // init and install processor object (need bspIndex) -> start main/idle loop
-  processorTable[bspIndex].SystemProcessor::initAll(pml4addr, idt, sizeof(idt), processorTable[bspIndex], frameManager);
-  processorTable[bspIndex].VirtualProcessor::start(bootMain);
+  processorTable[bspIndex].init(pml4addr, false, idt, sizeof(idt));
+  processorTable[bspIndex].start(bootMain);
 }
 
 // on proper stack, processor initialized
@@ -408,7 +404,7 @@ apDone:
 
   // start irq thread after cdi init -> avoid interference from device irqs
   DBG::outl(DBG::Boot, "Creating IRQ thread...");
-  Thread::create()->setPriority(topPriority)->setAffinity(processorTable[0].getScheduler())->start((ptr_t)asyncIrqLoop);
+  Thread::create()->setPriority(topPriority)->setScheduler(processorTable[0].getScheduler())->setAffinity(true)->start((ptr_t)asyncIrqLoop);
 }
 
 void Machine::bootCleanup() {
@@ -444,7 +440,7 @@ void Machine::bootMain() {
   Machine::initBSP2();
   Machine::bootCleanup();
   Thread::create()->start((ptr_t)kosMain);
-  Runtime::thisProcessor()->terminate(); // explicitly terminate boot thread
+  CurrThread()->terminate(); // explicitly terminate boot thread
 }
 
 /*********************** IRQ / Exception Handling Code ***********************/
@@ -508,7 +504,7 @@ void Machine::deregisterIrqAsync(mword irq, funcvoid1_t handler) {
 }
 
 constexpr inline mword Machine::kernCS() {
-  return HardwareProcessor::kernCS * sizeof(SegmentDescriptor);
+  return Processor::kernCS * sizeof(SegmentDescriptor);
 }
 
 void Machine::setupIDT(uint32_t number, paddr address, uint32_t ist) {
@@ -537,19 +533,19 @@ void Machine::setupIDTable() {
   // first 32 vectors are architectural or reserved
   setupIDT(0x00, (vaddr)&isr_wrapper_0x00);
   setupIDT(0x01, (vaddr)&isr_wrapper_0x01);
-  setupIDT(0x02, (vaddr)&isr_wrapper_0x02, HardwareProcessor::nmiIST);
+  setupIDT(0x02, (vaddr)&isr_wrapper_0x02, Processor::nmiIST);
   setupIDT(0x03, (vaddr)&isr_wrapper_0x03);
   setupIDT(0x04, (vaddr)&isr_wrapper_0x04);
   setupIDT(0x05, (vaddr)&isr_wrapper_0x05);
   setupIDT(0x06, (vaddr)&isr_wrapper_0x06);
   setupIDT(0x07, (vaddr)&isr_wrapper_0x07);
-  setupIDT(0x08, (vaddr)&isr_wrapper_0x08, HardwareProcessor::dbfIST); // double fault
+  setupIDT(0x08, (vaddr)&isr_wrapper_0x08, Processor::dbfIST); // double fault
   setupIDT(0x09, (vaddr)&isr_wrapper_0x09);
   setupIDT(0x0a, (vaddr)&isr_wrapper_0x0a);
   setupIDT(0x0b, (vaddr)&isr_wrapper_0x0b);
-  setupIDT(0x0c, (vaddr)&isr_wrapper_0x0c, HardwareProcessor::stfIST); // stack fault
+  setupIDT(0x0c, (vaddr)&isr_wrapper_0x0c, Processor::stfIST); // stack fault
   setupIDT(0x0d, (vaddr)&isr_wrapper_0x0d); // general protection fault
-  setupIDT(0x0e, (vaddr)&isr_wrapper_0x0e); // page fault
+  setupIDT(0x0e, (vaddr)&isr_wrapper_0x0e); // no page fault stack to support nested page faults
   setupIDT(0x0f, (vaddr)&isr_wrapper_0x0f);
   setupIDT(0x10, (vaddr)&isr_wrapper_0x10);
   setupIDT(0x11, (vaddr)&isr_wrapper_0x11);
@@ -919,7 +915,7 @@ extern "C" void exception_handler_errcode_0x0e(mword* isrFrame, mword ec) {
   IsrEntry<false> ie(isrFrame);
   vaddr da = CPU::readCR2();
   if (userbot <= da && da < usertop) {               // regular page fault
-    if (CurrAS().pagefault(da, ec)) return;
+    if (CurrThread()->getMemCtx().pagefault(da, ec)) return;
   }
   if (Paging::start() <= da && da < Paging::end()) { // fault in page table region
     KASSERT0(!ie.fromUser());
@@ -975,12 +971,12 @@ extern "C" void irq_handler_async(mword* isrFrame, mword idx) {
 
 extern "C" void irq_handler_0xe0(mword* isrFrame) { // APIC::WakeIPI
   IsrEntry<true> ie(isrFrame);
-  Runtime::thisProcessor()->wake();
+  DBG::outl(DBG::Idle, "got WakeIPI");
 }
 
 extern "C" void irq_handler_0xed(mword* isrFrame) { // APIC::PreemptIPI
   IsrEntry<true> ie(isrFrame);
-  Runtime::thisProcessor()->preempt();
+  CurrThread()->preempt();
 }
 
 extern "C" void irq_handler_0xee(mword* isrFrame) { // APIC::TestIPI

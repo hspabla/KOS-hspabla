@@ -20,71 +20,54 @@
 #if defined(__KOS__)
 
 #include "runtime/Runtime.h"
-#include "runtime/Scheduler.h"
+#include "kernel/AddressSpace.h"
 #include "kernel/Clock.h"
-#include "kernel/Process.h"
-#include "machine/Machine.h"
 
-namespace Runtime {
+inline vaddr Runtime::allocThreadStack(size_t ss) {
+  return kernelAS.allocStack(ss);
+}
 
-  /**** debug output routines ****/
+inline void Runtime::releaseThreadStack(vaddr vma, size_t ss) {
+  kernelAS.releaseStack(vma, ss);
+}
 
-  template<typename... Args>
-  static void debugI(const Args&... a) { DBG::outl(DBG::Idle, a...); }
-
-  template<typename... Args>
-  static void debugS(const Args&... a) { DBG::outl(DBG::Scheduler, a...); }
-
-  template<typename... Args>
-  static void debugT(const Args&... a) { DBG::outl(DBG::Threads, a...); }
-
-  /**** AddressSpace-related interface ****/
-
-  static MemoryContext currentAS() { return ::CurrAS(); }
-  static MemoryContext defaultAS() { return ::defaultAS; }
-
-  static vaddr allocThreadStack(size_t ss) {
-    return kernelAS.allocStack(ss);
-  }
-
-  static void releaseThreadStack(vaddr vma, size_t ss) {
-    kernelAS.releaseStack(vma, ss);
-  }
-
-  /**** idle loop ****/
-
-  static void spin(VirtualProcessor& vp) {
+void Runtime::idleLoop() {
+  for (;;) {
+    mword e = LocalProcessor::getEpoch();
     mword tick = Clock::now() + 10;
-    while (vp.empty() && sword(tick - Clock::now()) > 0) CPU::Pause();
-  }
-
-  static void idle(VirtualProcessor& vp) {
-    if (!CurrFM().zeroMemory()) {
-      Runtime::debugI("idle halt");
-      if (vp.getScheduler()->reportIdle(vp)) CPU::Halt();
+    while (e == LocalProcessor::getEpoch()) {
+      if (Clock::now() < tick) CPU::Pause();
+      else if (!CurrFM().zeroMemory()) {
+        DBG::outl(DBG::Idle, "idle halt");
+        CPU::Halt();
+      }
+      CurrThread()->yield();
     }
   }
+}
 
-  static void wake(VirtualProcessor& vp) {
-    Runtime::debugI("send WakeIPI to ", vp.getIndex());
-    vp.sendWakeIPI();
-  }
+inline void Runtime:: wake(SystemProcessor& sp) {
+  DBG::outl(DBG::Idle, "send WakeIPI to ", sp.getIndex());
+  sp.sendWakeIPI();
+}
 
-  /**** thread switch ****/
+inline void Runtime::preThreadSwitch(Thread* nextThread) {
+  CHECK_LOCK_COUNT(1);
+  AddressSpace& nextAS = nextThread->getMemCtx();
+  AddressSpace& currAS = CurrThread()->getMemCtx();
+  currAS.preThreadSwitch();
+  currAS.switchTo(nextAS);
+  LocalProcessor::setCurrThread(nextThread, _friend<Runtime>());
+}
 
-  static MemoryContext preThreadSwitch() {
-    CurrAS().preThreadSwitch();
-    return CurrAS();
-  }
-
-  static void postThreadSwitch(Thread* prevThread, MemoryContext nextAS) {
-    CHECK_LOCK_COUNT(1);
-    AddressSpace& prevAS = nextAS.switchTo();
-    nextAS.postThreadResume();
-    if slowpath(prevThread) {            // cf. postSwitch() in Scheduler.cc
-      prevThread->destroy();
-      prevAS.postThreadDestroy();
-    }
+inline void Runtime::postThreadSwitch(Thread* prevThread) {
+  CHECK_LOCK_COUNT(1);
+  AddressSpace& nextAS = CurrThread()->getMemCtx();
+  nextAS.postThreadResume();
+  if slowpath(prevThread) {            // cf. postSwitch() in Scheduler.cc
+    AddressSpace& prevAS = prevThread->getMemCtx();
+    prevThread->destroy();
+    prevAS.postThreadDestroy();
   }
 }
 

@@ -24,11 +24,7 @@ Thread* Thread::create(size_t ss) {
   vaddr mem = Runtime::allocThreadStack(ss);
   vaddr This = mem + ss - sizeof(Thread);
   Runtime::debugT("Thread create: ", FmtHex(mem), '/', FmtHex(ss), '/', FmtHex(This));
-  return new (ptr_t(This)) Thread(mem, ss);
-}
-
-Thread* Thread::create() {
-  return create(defaultStack);
+  return new (ptr_t(This)) Thread(mem, ss, defaultAS);
 }
 
 void Thread::destroy() {
@@ -38,9 +34,93 @@ void Thread::destroy() {
   Runtime::releaseThreadStack(stackBottom, stackSize);
 }
 
-void Thread::start(ptr_t func, ptr_t p1, ptr_t p2, ptr_t p3) {
-  setup(Runtime::currentAS(), func, p1, p2, p3);
-  resume();
+static inline void unlock() {}
+
+template<typename... Args>
+static inline void unlock(BasicLock &l, Args&... a) {
+  l.release();
+  unlock(a...);
+}
+
+template<typename... Args>
+inline void Thread::switchThread(bool yield, Args&... a) {
+  CHECK_LOCK_MIN(sizeof...(Args));
+  Thread* nextThread = scheduler->dequeue(yield ? idlePriority : maxPriority);
+  unlock(a...); // REMEMBER: unlock early, because suspend/resume to same CPU!
+  Runtime::debugS("Thread switch <", (yield ? 'Y' : 'S'), ">: ", FmtHex(this), " to ", FmtHex(nextThread));
+  if (nextThread) {
+    GENASSERTN(this != nextThread, FmtHex(this), ' ', FmtHex(nextThread));
+    Runtime::preThreadSwitch(nextThread);
+    Thread* prevThread = stackSwitch(this, yield ? postYield : postSuspend, &stackPointer, nextThread->stackPointer);
+    Runtime::postThreadSwitch(prevThread);
+  } else {
+    // no next thread, run post-switch anyway (AS switch/destroy, thread cancel)
+    GENASSERT0(yield);
+    Runtime::preThreadSwitch(this);
+  }
+  if (state == Cancelled) {
+    state = Finishing;
+    switchThread(false);
+    unreachable();
+  }
+}
+
+// return 'prevThread' only if the previous thread needs to be destroyed
+Thread* Thread::postYield(Thread* prevThread) {
+  CHECK_LOCK_COUNT(1);
+  GENASSERT1(!prevThread->finishing(), FmtHex(prevThread));
+#if TESTING_NEVER_MIGRATE
+  prevThread->scheduler->enqueue(*prevThread, _friend<Thread>());
+#else /* migration enabled */
+  if (prevThread->affinity) prevThread->scheduler->enqueue(*prevThread, _friend<Thread>());
+  else prevThread->scheduler->enqueueBalanced(*prevThread, _friend<Thread>());
+#endif
+  return nullptr;
+}
+
+// return 'prevThread' only if the previous thread needs to be destroyed
+Thread* Thread::postSuspend(Thread* prevThread) {
+  CHECK_LOCK_COUNT(1);
+  if slowpath(prevThread->finishing()) return prevThread;
+  return nullptr;
+}
+
+extern "C" void invokeThread(Thread* prevThread, funcvoid3_t func, ptr_t arg1, ptr_t arg2, ptr_t arg3) {
+  Runtime::postThreadSwitch(prevThread);
+  Runtime::EnablePreemption();
+  func(arg1, arg2, arg3);
+  CurrThread()->terminate();
+}
+
+void Thread::yield() {
+  Runtime::DisablePreemption dp(true);
+  switchThread(true);
+}
+
+void Thread::preempt() { // expect preemption already disabled
+  switchThread(true);
+}
+
+void Thread::suspend(BasicLock& lk) {
+  Runtime::DisablePreemption dp;
+  switchThread(false, lk);
+}
+
+void Thread::suspend(BasicLock& lk1, BasicLock& lk2) {
+  Runtime::DisablePreemption dp;
+  switchThread(false, lk1, lk2);
+}
+
+void Thread::terminate() {
+  Runtime::DisablePreemption dp(true);
+  state = Thread::Finishing;
+  switchThread(false);
+  unreachable();
+}
+
+void Thread::resume() {
+  GENASSERT0(scheduler);
+  scheduler->enqueue(*this, _friend<Thread>());
 }
 
 void Thread::cancel() {

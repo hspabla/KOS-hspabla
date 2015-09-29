@@ -51,7 +51,7 @@ public:
     Timeout::lock.acquire();
     if (thr->block(this)) {
       titer = Timeout::queue.insert( {timeout, thr} ); // set up timeout
-      Runtime::thisProcessor()->suspend(Timeout::lock);
+      thr->suspend(Timeout::lock);
     } else {
       Timeout::lock.release();
     }
@@ -74,7 +74,7 @@ public:
     Thread* thr = CurrThread();
     if (thr->block(this)) {
       queue.push_back(*thr);                           // set up block
-      Runtime::thisProcessor()->suspend(bLock);
+      thr->suspend(bLock);
       return !timedOut;
     }
     bLock.release();
@@ -96,7 +96,7 @@ public:
     if (thr->block(this)) {
       queue.push_back(*thr);                           // set up block
       titer = Timeout::queue.insert( {timeout, thr} ); // set up timeout
-      Runtime::thisProcessor()->suspend(bLock, Timeout::lock);
+      thr->suspend(bLock, Timeout::lock);
       return !timedOut;
     }
     Timeout::lock.release();
@@ -230,8 +230,8 @@ public:
   }
 
   mword release() {
-    GENASSERT1(owner == CurrThread(), FmtHex(owner));
     lock.acquire();
+    GENASSERT1(owner == CurrThread(), FmtHex(owner));
     counter -= 1;
     mword retval = counter;
     if (counter == 0) internalRelease();

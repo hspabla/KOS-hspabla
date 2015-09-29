@@ -17,14 +17,14 @@
 #ifndef _asmshare_h_
 #define _asmshare_h_ 1
 
-// TSSRSP must be consistent with HardwareProcessor.h
+// TSSRSP must be consistent with Processor.h
 
 #ifdef __ASSEMBLY__
 .set BOOTAP16, 0x1000
-.set TSSRSP, 0x2C
+.set TSSRSP, 0x44
 #else
 #define BOOTAP16 0x1000ul
-#define TSSRSP 0x2Cul
+#define TSSRSP 0x44ul
 #endif
 
 #endif /* _asmshare_h_ */

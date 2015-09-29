@@ -33,7 +33,7 @@ static void tipiCounter() { tipiCount += 1; }
 static mword rCount = 0;
 static void receiver() {
   KOUT::outl("IPI receiver @ core ", LocalProcessor::getIndex());
-  Runtime::thisProcessor()->yield();
+  CurrThread()->yield();
   KOUT::outl("IPI receiver @ core ", LocalProcessor::getIndex());
   while (!done) rCount += 1;
 }
@@ -42,7 +42,7 @@ static mword sCount = 0;
 static mword tscStart, tscEnd;
 static void sender() {
   KOUT::outl("IPI sender @ core ", LocalProcessor::getIndex());
-  Runtime::thisProcessor()->yield();
+  CurrThread()->yield();
   KOUT::outl("IPI sender @ core ", LocalProcessor::getIndex());
   tscStart = CPU::readTSC();
   for (int i = 0; i < 1000; i += 1) {
@@ -58,10 +58,10 @@ static void run() {
   KOUT::outl("IPI experiment running...");
   tipiHandler = tipiCounter;
   Thread* t = Thread::create();
-  t->setAffinity(Machine::getProcessor(1).getScheduler());
+  t->setScheduler(Machine::getProcessor(1).getScheduler())->setAffinity(true);
   t->start((ptr_t)receiver);
   t = Thread::create();
-  t->setAffinity(Machine::getProcessor(2).getScheduler());
+  t->setScheduler(Machine::getProcessor(2).getScheduler())->setAffinity(true);
   t->start((ptr_t)sender);
   while (!done);
   KOUT::outl("IPI experiment results: ", tipiCount, ' ', sCount, ' ', rCount, ' ', tscEnd - tscStart);

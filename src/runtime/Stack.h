@@ -17,14 +17,15 @@
 #ifndef _stack_h_
 #define _stack_h_ 1
 
-#include "runtime/Runtime.h"
+#include "generic/basics.h"
 
+class Thread;
 typedef Thread* PostFunc(Thread*);
 
 // initialize stack and switch directly to 'func(arg1,arg2,arg3,arg4)'
 extern "C" mword stackDirect(vaddr stack, ptr_t func, ptr_t arg1, ptr_t arg2, ptr_t arg3, ptr_t arg4);
-// initialize stack for indirect invocation of 'invokeThread(prevThread,as,func,arg1,arg2,arg3)'
-extern "C" mword stackInit(vaddr stack, MemoryContext as, ptr_t func, ptr_t arg1, ptr_t arg2, ptr_t arg3);
+// initialize stack for indirect invocation of 'invokeThread(prevThread,func,arg1,arg2,arg3,arg4)'
+extern "C" mword stackInit(vaddr stack, ptr_t func, ptr_t arg1, ptr_t arg2, ptr_t arg3, ptr_t arg4);
 // save stack to 'currSP', switch to stack in 'nextSP', then call 'postFunc,(currThread)'
 extern "C" Thread* stackSwitch(Thread* currThread, PostFunc postFunc, vaddr* currSP, vaddr nextSP);
 

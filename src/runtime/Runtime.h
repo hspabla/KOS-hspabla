@@ -19,23 +19,16 @@
 
 #if defined(__KOS__)
 
-#include "generic/basics.h"
+#include "kernel/Output.h"
 #include "kernel/SpinLock.h"
 
 typedef SpinLock BasicLock;
 typedef ScopedLock<BasicLock> AutoLock;
 
 class AddressSpace;
-class Scheduler;
+class FrameManager;
 class Thread;
-class VirtualProcessor;
-
-typedef AddressSpace& MemoryContext;
-
-static const mword  topPriority = 0;
-static const mword  defPriority = 1;
-static const mword idlePriority = 2;
-static const mword  maxPriority = 3;
+class SystemProcessor;
 
 #define CHECK_LOCK_MIN(x) \
   KASSERT1(LocalProcessor::checkLock() > (x), LocalProcessor::getLockCount())
@@ -43,8 +36,7 @@ static const mword  maxPriority = 3;
 #define CHECK_LOCK_COUNT(x) \
   KASSERT1(LocalProcessor::checkLock() == (x), LocalProcessor::getLockCount())
 
-namespace Runtime {
-
+struct Runtime {
   /**** additional thread fields that depend on runtime system ****/
 
   struct ThreadStats {
@@ -69,11 +61,38 @@ namespace Runtime {
 
   static void EnablePreemption() { LocalProcessor::unlock(true); } // full unlock
 
-  /**** obtain/use context information ****/
+  /**** debug output ****/
 
-  static VirtualProcessor* thisProcessor() { return LocalProcessor::self(); }
+  template<typename... Args>
+  static inline void debugS(const Args&... a) { DBG::outl(DBG::Scheduler, a...); }
 
-}
+  template<typename... Args>
+  static inline void debugT(const Args&... a) { DBG::outl(DBG::Threads, a...); }
+
+  /**** AddressSpace-related interface ****/
+
+  typedef AddressSpace& MemoryContext;
+
+  static inline vaddr allocThreadStack(size_t ss);
+  static inline void releaseThreadStack(vaddr vma, size_t ss);
+
+  /**** idle loop ****/
+
+  static inline void idleLoop();
+  static inline void wake(SystemProcessor& sp);
+
+  /**** thread switch ****/
+
+  static inline Thread* CurrThread() {
+    Thread* t = LocalProcessor::getCurrThread(_friend<Runtime>());
+    KASSERT0(t);
+    return t;
+  }
+  static inline void preThreadSwitch(Thread* nextThread);
+  static inline void postThreadSwitch(Thread* prevThread);
+};
+
+static Thread* CurrThread() { return Runtime::CurrThread(); }
 
 #else
 #error undefined platform: only __KOS__ supported at this time

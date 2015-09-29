@@ -14,9 +14,7 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ******************************************************************************/
-#include "runtime/Scheduler.h"
 #include "runtime/Thread.h"
-#include "runtime/VirtualProcessor.h"
 #include "kernel/KernelHeap.h"
 #include "kernel/Output.h"
 #include "machine/Machine.h"
@@ -732,13 +730,13 @@ static volatile bool allstop = false;
 
 // pin thread to core during 'step' and 'next'
 static Thread* savedThread = nullptr;
-static BaseScheduler* savedAffinity = nullptr;
+static bool savedAffinity = false;
 
 static void setGdbAffinity() {
   if (!savedThread) {
     savedThread = CurrThread();
     savedAffinity = savedThread->getAffinity();
-    savedThread->setAffinity(Runtime::thisProcessor()->getScheduler());
+    savedThread->setAffinity(true);
     DBG::outl(DBG::GDBDebug, "GDB(", cTID(),") set GDB affinity");
   }
 }

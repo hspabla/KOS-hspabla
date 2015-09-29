@@ -23,7 +23,7 @@
 syscall_wrapper:
 	swapgs
 	movq %rsp, %rax       /* save user stack pointer */
-	movq %gs:TSSRSP, %rsp /* switch to kernel stack (from TSS), cf. HardwareProcessor.h */
+	movq %gs:TSSRSP, %rsp /* switch to kernel stack (from TSS), cf. Processor.h */
 	sti                   /* re-enable interrupts (disabled during syscall) */
 	pushq %rax            /* push user stack pointer on kernel stack */
 	pushq %r11            /* also save %r11 (rflags) */
@@ -34,7 +34,7 @@ syscall_wrapper:
 	popq %r11             /* restore %r11 (rflags) - sysretq enables interrupts */
 	popq %r10             /* get user stack pointer */
 	cli                   /* disable interrupts before swapgs and setting stack */
-	movq %rsp, %gs:TSSRSP /* store kernel stack pointer in TSS, cf. HardwareProcessor.h */
+	movq %rsp, %gs:TSSRSP /* store kernel stack pointer in TSS, cf. Processor.h */
 	movq %r10, %rsp       /* switch back to user stack */
 	swapgs
 	sysretq               /* TODO: security - verify that %rcx address is canonical! */
@@ -44,7 +44,7 @@ syscall_wrapper:
 startUserCode:          /* arg1(rdi), arg2(rsi), kstack(rdx), func(rcx), ustack(r8) */
 	movq $0x200,%r11      /* enable interrupts during sysretq */
 	cli                   /* disable interrupts before swapgs and setting stack */
-	movq %rdx, %gs:TSSRSP /* store kernel stack pointer in TSS, cf. HardwareProcessor.h */
+	movq %rdx, %gs:TSSRSP /* store kernel stack pointer in TSS, cf. Processor.h */
 	movq %r8, %rsp        /* set user stack pointer */
 	swapgs
 	sysretq

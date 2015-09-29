@@ -18,7 +18,7 @@
 #define _SpinLock_h_ 1
 
 #include "machine/CPU.h"
-#include "machine/HardwareProcessor.h"
+#include "machine/Processor.h"
 
 /* TODO: add (exponential) backoff spin to spinlocks */
 

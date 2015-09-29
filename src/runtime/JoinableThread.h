@@ -26,7 +26,8 @@ class JoinableThread : public Thread {
   ptr_t* result;
   enum State { Regular, Detached, Joining } jState;
 public:
-  JoinableThread(vaddr sb, size_t ss) : Thread(sb, ss), jState(Regular) {}
+  JoinableThread(vaddr sb, size_t ss, Runtime::MemoryContext mc)
+    : Thread(sb, ss, mc), jState(Regular) {}
   void post(ptr_t res, BasicLock& lock) {
     if (jState == Detached) return;
     if (wait.empty()) {

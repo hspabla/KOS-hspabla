@@ -17,9 +17,12 @@
 #ifndef _AddressSpace_h_
 #define _AddressSpace_h_ 1
 
-#include "runtime/VirtualProcessor.h"
+#include "runtime/Runtime.h"
+#include "kernel/SystemProcessor.h"
 #include "kernel/FrameManager.h"
 #include "machine/Paging.h"
+
+#include "extern/stl/mod_set"
 
 // TODO: store shared & swapped virtual memory regions in separate data
 // structures - checked during page fault (swapped) resp. unmap (shared)
@@ -32,20 +35,33 @@ class BaseAddressSpace : public Paging {
     paddr  pma;
     size_t size;
     bool   alloc;
+    mword  dummy; // sizeof(MemoryDescriptor) >= sizeof(UnmapDescriptor)
     MemoryDescriptor(vaddr v, paddr p, size_t s, bool a)
       : vma(v), pma(p), size(s), alloc(a) {}
     MemoryDescriptor(const MemoryDescriptor&) = default;
     MemoryDescriptor& operator=(const MemoryDescriptor&) = default;
   };
 
-protected:
-  SpinLock ulock;          // lock protecting page invalidation data
-  sword unmapEpoch;        // unmap epoch counter
-  IntrusiveList<MemoryDescriptor> memoryList; // list of pages to unmap
-  IntrusiveList<AddressSpaceMarker> markerList;    // list of CPUs active in AS
-  HeapCache<sizeof(MemoryDescriptor)> mdCache;
+  struct UnmapDescriptor : public mod_set_elem<UnmapDescriptor*> {
+    vaddr start;
+    vaddr end;
+    UnmapDescriptor(vaddr s, vaddr e) : start(s), end(e) {}
+    UnmapDescriptor(const UnmapDescriptor&) = default;
+    UnmapDescriptor& operator=(const UnmapDescriptor&) = default;
+    bool operator<(const UnmapDescriptor& u) { return start < u.start; }
+  };
 
-  SpinLock vlock;          // lock protecting virtual address range
+  static_assert(sizeof(MemoryDescriptor) >= sizeof(UnmapDescriptor), "type sizes");
+
+protected:
+  SpinLock ulock;                      // lock protecting page invalidation data
+  sword unmapEpoch;                             // unmap epoch counter
+  IntrusiveList<MemoryDescriptor> memoryList;   // list of pages to unmap
+  IntrusiveList<AddressSpaceMarker> markerList; // list of CPUs active in AS
+  HeapCache<sizeof(MemoryDescriptor)> mdCache;
+  IntrusiveStdSet<UnmapDescriptor*> unmapSet;
+
+  SpinLock vlock;                      // lock protecting virtual address range
   vaddr mapBottom, mapStart, mapTop;
 
   enum MapCode { NoAlloc, Alloc, Guard, Lazy };
@@ -87,15 +103,22 @@ allocFailed:
     KABORT0();
   }
 
-  void putVmRange(vaddr addr, size_t size) {
-    vaddr end = addr + size;
+  void putVmRange(MemoryDescriptor* md) {
+    UnmapDescriptor* ud = new (md) UnmapDescriptor(md->vma, md->vma + md->size);
+    unmapSet.insert(ud);
     ScopedLock<> sl(vlock);
-    if (addr <= mapStart && mapStart <= end) {
-      while ((size = Paging::test(end, Available)) && end + size <= mapTop) end += size;
-      DBG::outl(DBG::VM, "AS(", FmtHex(this), ")/put: ", FmtHex(mapStart), '-', FmtHex(end));
-      // TODO: clear page tables in range [mapStart...end]
-      mapStart = end;
-    }
+    do {
+      auto iter = unmapSet.begin();
+      ud = *iter;
+      if (ud->start > mapStart) break;
+      KASSERTN(ud->start == mapStart, FmtHex(mapStart), ' ', FmtHex(ud->start));
+      KASSERTN(ud->end    > mapStart, FmtHex(mapStart), ' ', FmtHex(ud->end));
+      DBG::outl(DBG::VM, "AS(", FmtHex(this), ")/put: ", FmtHex(mapStart), '-', FmtHex(ud->end));
+      mapStart = ud->end;
+      unmapSet.erase(iter);
+      mdCache.deallocate(reinterpret_cast<MemoryDescriptor*>(ud));
+      // TODO: clear page tables in range [mapStart...ud->end]
+    } while (!unmapSet.empty());
   }
 
   template<size_t N, MapCode mc, PageType owner>
@@ -189,10 +212,9 @@ allocFailed:
         KASSERT0(!memoryList.empty());
         MemoryDescriptor* md = memoryList.front();
         DBG::outl(DBG::VM, "AS(", FmtHex(this), ")/inv: ", FmtHex(md->vma), '/', FmtHex(md->size), " -> ", FmtHex(md->pma), (md->alloc ? "a" : ""), " epoch:", e);
-        putVmRange(md->vma, md->size);
         if (md->alloc) CurrFM().release(md->pma, md->size);
         IntrusiveList<MemoryDescriptor>::remove(*md);
-        mdCache.deallocate(md);
+        putVmRange(md);
       }
     }
   }
@@ -247,7 +269,7 @@ public:
 
   void runInvalidation() {
     ScopedLock<> sl(ulock);
-    AddressSpaceMarker& marker = Runtime::thisProcessor()->kernASM;
+    AddressSpaceMarker& marker = LocalProcessor::self()->kernASM;
     leave<true>(marker);
     enter(marker);
   }
@@ -332,28 +354,25 @@ public:
     mapRegion<N,NoAlloc,User>(pma, vma, size, t);
   }
 
-  AddressSpace& switchTo() {
+  void switchTo(AddressSpace& nextAS) {
     KASSERT0(LocalProcessor::checkLock());
     KASSERT0(pagetable != topaddr);
-    AddressSpace& prevAS = CurrAS();
-    verifyPT(prevAS.pagetable);
-    AddressSpaceMarker& marker = Runtime::thisProcessor()->userASM;
-    if (prevAS.pagetable != pagetable) {
-      DBG::outl(DBG::AddressSpace, "AS(", FmtHex(prevAS.pagetable), ")/switchTo: ", FmtHex(pagetable));
-      prevAS.ulock.acquire();
-      prevAS.leave<false>(marker);
-      prevAS.ulock.release();
-      Paging::installPagetable(pagetable);
-      Runtime::thisProcessor()->currAS = this;
-      ScopedLock<> sl(ulock);
-      enter(marker);
+    verifyPT(pagetable);
+    AddressSpaceMarker& marker = LocalProcessor::self()->userASM;
+    if (pagetable != nextAS.pagetable) {
+      DBG::outl(DBG::AddressSpace, "AS(", FmtHex(pagetable), ")/switchTo: ", FmtHex(nextAS.pagetable));
+      Paging::installPagetable(nextAS.pagetable);
+      ulock.acquire();
+      leave<false>(marker);
+      ulock.release();
+      ScopedLock<> sl(nextAS.ulock);
+      nextAS.enter(marker);
     } else {
       ScopedLock<> sl(ulock);
       leave<true>(marker);
       enter(marker);
     }
     kernelAS.runInvalidation();
-    return prevAS;
   }
 
   virtual void preThreadSwitch() {}
@@ -361,20 +380,12 @@ public:
   virtual void postThreadDestroy() {}
 
   void print(ostream& os) const;
-
-  static AddressSpace& CurrAS() {
-    AddressSpace* as = Runtime::thisProcessor()->currAS;
-    KASSERT0(as);
-    return *as;
-  }
 };
 
 inline ostream& operator<<(ostream& os, const AddressSpace& as) {
   as.print(os);
   return os;
 }
-
-static inline AddressSpace& CurrAS() { return AddressSpace::CurrAS(); }
 
 extern AddressSpace defaultAS;
 

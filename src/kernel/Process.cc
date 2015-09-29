@@ -14,7 +14,6 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ******************************************************************************/
-#include "runtime/Scheduler.h"
 #include "runtime/Thread.h"
 #include "kernel/Process.h"
 #include "extern/elfio/elfio.hpp"
@@ -24,7 +23,7 @@ SpinLock Process::elfLock;
 void Process::invokeUser(funcvoid2_t func, ptr_t arg1, ptr_t arg2) {
   UserThread* ut = Process::CurrUT();
   ut->stackSize = defaultUserStack;
-  ut->stackAddr = CurrAS().allocStack(ut->stackSize);
+  ut->stackAddr = CurrProcess().allocStack(ut->stackSize);
   DBG::outl(DBG::Threads, "UserThread start: ", FmtHex(ut), '/', FmtHex((ptr_t)func));
   startUserCode(arg1, arg2, vaddr(ut), func, ut->stackAddr + ut->stackSize);
   unreachable();
@@ -92,13 +91,13 @@ inline funcvoid2_t Process::load() {
 }
 
 inline Process::UserThread* Process::setupThread(ptr_t invoke, ptr_t wrapper, ptr_t func, ptr_t data) {
-  UserThread* ut = UserThread::create();
+  UserThread* ut = UserThread::create(*this);
   threadLock.acquire();
   ut->idx = threadStore.put(ut);
   existingThreads += 1;
   activeThreads += 1;
   DBG::outl(DBG::Threads, "UserThread setup: ", FmtHex(ut), '/', ut->idx);
-  ut->setup(*this, invoke, wrapper, func, data);
+  ut->setup(invoke, wrapper, func, data);
   threadLock.release();
   return ut;
 }
@@ -131,7 +130,7 @@ void Process::exit() {
     }
   }
   threadLock.release();
-  Runtime::thisProcessor()->terminate();
+  ut->terminate();
 }
 
 mword Process::createThread(funcvoid2_t wrapper, funcvoid1_t func, ptr_t data) {
@@ -148,7 +147,7 @@ void Process::exitThread(ptr_t result) {
   activeThreads -= 1;
   if (activeThreads) ut->post(result, threadLock);
   else threadLock.release();
-  Runtime::thisProcessor()->terminate();
+  ut->terminate();
 }
 
 int Process::joinThread(mword idx, ptr_t& result) {

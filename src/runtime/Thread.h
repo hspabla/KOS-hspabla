@@ -18,56 +18,72 @@
 #define _Thread_h_ 1
 
 #include "generic/IntrusiveContainers.h" 
+#include "runtime/Runtime.h"
 #include "runtime/Stack.h"
-#include "runtime/VirtualProcessor.h"
 
 class BaseScheduler;
 class UnblockInfo;
 
-class Thread;
-
-static inline Thread* CurrThread() {
-  Thread* t = Runtime::thisProcessor()->getCurrThread();
-  GENASSERT0(t);
-  return t;
-}
+static const mword  topPriority = 0;
+static const mword  defPriority = 1;
+static const mword idlePriority = 2;
+static const mword  maxPriority = 3;
 
 class Thread : public IntrusiveList<Thread>::Link {
-  friend class VirtualProcessor; // stackPointer, nextScheduler
+  vaddr stackPointer;       // holds stack pointer while thread inactive
+  vaddr stackBottom;        // bottom of allocated memory for thread/stack
+  size_t stackSize;         // size of allocated memory
 
-  vaddr stackPointer;            // holds stack pointer while thread inactive
-  vaddr stackBottom;             // bottom of allocated memory for thread/stack
-  size_t stackSize;              // size of allocated memory
+  BaseScheduler* scheduler; // default: resume on same scheduler
+  bool affinity;            // stick with scheduler
+  mword priority;           // scheduling priority
 
-  BaseScheduler* nextScheduler;  // default: resume on same scheduler
-  bool affinity;                 // stick with scheduler
-  mword priority;                // scheduling priority
+  enum State { Running, Cancelled, Finishing } state;
+  UnblockInfo* unblockInfo; // unblock vs. timeout vs. cancel
 
+  Runtime::MemoryContext memctx;
   Runtime::ThreadStats stats;
 
   Thread(const Thread&) = delete;
   const Thread& operator=(const Thread&) = delete;
 
-protected:
-  enum State { Running, Cancelled, Finishing } state;
-  UnblockInfo* unblockInfo; // unblock vs. timeout vs. cancel
+  template<typename... Args>
+  inline void switchThread(bool yield, Args&... a);
+  inline void switchThread2();
+  static Thread* postYield(Thread* prevThread);
+  static Thread* postSuspend(Thread* prevThread);
 
-  Thread(vaddr sb, size_t ss) :
+protected:
+  Thread(vaddr sb, size_t ss, Runtime::MemoryContext& mc) :
     stackPointer(vaddr(this)), stackBottom(sb), stackSize(ss),
-    nextScheduler(Runtime::thisProcessor()->getScheduler()), affinity(false),
-    priority(defPriority), state(Running), unblockInfo(nullptr) {}
+    scheduler(nullptr), affinity(false), priority(defPriority),
+    state(Running), unblockInfo(nullptr), memctx(mc) {}
 
 public:
   static Thread* create(size_t ss);
-  static Thread* create();
+  static Thread* create() { return create(defaultStack); }
   void destroy();
+
   void direct(ptr_t func, ptr_t p1 = nullptr, ptr_t p2 = nullptr, ptr_t p3 = nullptr, ptr_t p4 = nullptr) {
+    if (!affinity) scheduler = CurrThread()->scheduler;
     stackDirect(stackPointer, func, p1, p2, p3, p4);
   }
-  void setup(MemoryContext ctx, ptr_t func, ptr_t p1 = nullptr, ptr_t p2 = nullptr, ptr_t p3 = nullptr) {
-    stackPointer = stackInit(stackPointer, ctx, func, p1, p2, p3);
+  void setup(ptr_t func, ptr_t p1 = nullptr, ptr_t p2 = nullptr, ptr_t p3 = nullptr, ptr_t p4 = nullptr) {
+    if (!affinity) scheduler = CurrThread()->scheduler;
+    stackPointer = stackInit(stackPointer, func, p1, p2, p3, p4);
   }
-  void start(ptr_t func, ptr_t p1 = nullptr, ptr_t p2 = nullptr, ptr_t p3 = nullptr);
+  void start(ptr_t func, ptr_t p1 = nullptr, ptr_t p2 = nullptr, ptr_t p3 = nullptr, ptr_t p4 = nullptr) {
+    setup(func, p1, p2, p3, p4);
+    resume();
+  }
+
+  void yield();
+  void preempt();
+  void suspend(BasicLock& lk);
+  void suspend(BasicLock& lk1, BasicLock& lk2);
+  void terminate() __noreturn;
+
+  void resume();
   void cancel();
 
   bool block(UnblockInfo* ubi) {
@@ -84,22 +100,16 @@ public:
     return __atomic_exchange_n( &unblockInfo, nullptr, __ATOMIC_SEQ_CST );
   }
 
-  void resume() {
-    GENASSERT0(nextScheduler);
-    nextScheduler->resume(*this);
-  }
-
-  bool finishing()             { return state == Finishing; }
-
+  bool cancelled() const       { return state == Cancelled; }
+  bool finishing() const       { return state == Finishing; }
   Thread* setPriority(mword p) { priority = p; return this; }
   mword getPriority() const    { return priority; }
+  Thread* setAffinity(bool a)  { affinity = a; return this; }
+  bool getAffinity() const     { return affinity; }
 
-  BaseScheduler* getNextScheduler() const { return nextScheduler; }
+  Thread* setScheduler(BaseScheduler& s) { scheduler = &s; return this; }
 
-  Thread* setAffinity(BaseScheduler* s)   { affinity = (nextScheduler = s); return this; }
-  BaseScheduler* getAffinity() const      { return affinity ? nextScheduler : nullptr; }
-  bool hasAffinity() const                { return affinity; }
-
+  Runtime::MemoryContext getMemCtx() { return memctx; }
   const Runtime::ThreadStats& getStats() const { return stats; }
 };
 

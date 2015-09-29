@@ -17,19 +17,8 @@
 #include "kernel/AddressSpace.h"
 #include "kernel/SystemProcessor.h"
 
-void SystemProcessor::init0(FrameManager& fm) {
-  frameManager = &fm;
-  currAS = &defaultAS;
-}
-
-void SystemProcessor::initAll(paddr pml4, InterruptDescriptor* idtTable, size_t idtSize, VirtualProcessor& vp, FrameManager& fm) {
-  HardwareProcessor::init0();
-  HardwareProcessor::init1(pml4, false);
-  HardwareProcessor::init2(idtTable, idtSize);
-  HardwareProcessor::init3(vp);
-  SystemProcessor::init0(fm);
-  HardwareProcessor::init4();
-  // init async TLB invalidation on this processor
+void SystemProcessor::start(funcvoid0_t func) {
   kernelAS.initInvalidation(kernASM);
   defaultAS.initInvalidation(userASM);
+  Processor::startup(scheduler, func);
 }

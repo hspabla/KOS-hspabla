@@ -18,28 +18,23 @@
 #define _SystemProcessor_h_ 1
 
 #include "generic/IntrusiveContainers.h"
+#include "runtime/Scheduler.h"
+#include "machine/Processor.h"
 
 struct AddressSpaceMarker : public IntrusiveList<AddressSpaceMarker>::Link {
   sword enterEpoch;
 };
 
-class AddressSpace;
-class FrameManager;
-
-class SystemProcessor : public HardwareProcessor {
+class SystemProcessor : public Processor {
   friend class KernelAddressSpace;
   friend class AddressSpace;
-  friend class FrameManager;
-  friend class Machine;
-  AddressSpace* volatile currAS;
-  FrameManager* volatile frameManager;
   AddressSpaceMarker userASM;
   AddressSpaceMarker kernASM;
-  void init0(FrameManager& fm)                          __section(".boot.text");
-  void initAll(paddr pml4, InterruptDescriptor* idtTable, size_t idtSize,
-       VirtualProcessor& vp, FrameManager& fm)          __section(".boot.text");
-protected:
-  SystemProcessor() : currAS(nullptr), frameManager(nullptr) {}
+  Scheduler scheduler;
+public:
+  SystemProcessor() : Processor(this) {}
+  void start(funcvoid0_t func);
+  Scheduler& getScheduler() { return scheduler; }
 };
 
 #endif /* _SystemProcessor_h_ */
