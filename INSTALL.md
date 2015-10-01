@@ -10,7 +10,7 @@ A somewhat recent version of *xorriso* (>-1.0.0) is necessary for making ISO boo
 Run `setup_crossenv.sh gcc gdb grub 2>&1 | tee setup.out` (bash syntax) to build the complete tool chain. The output should contain the following (among other output; grep for SUCCESS):
 
 `SUCCESS: gcc-5.2.0 install`  
-`SUCCESS: gdb-7.9.1 install`  
+`SUCCESS: gdb-7.10 install`  
 `SUCCESS: grub-2.02~beta2 install`
 
 Note that the cross compiler expects the KOS system library (`libKOS.a`) in the `src/ulib` directory when linking user-level programs.  This configuration setting is hard-coded in the *link_libgcc* and *libgcc* specs of the cross compiler.  This is controlled by the variable `ULDIR` in `setup_crossenv.sh`.
@@ -27,10 +27,10 @@ To prepare the KOS source code (starting from the main directory), download and 
 
 ```
 cd src/extern
-wget https://acpica.org/sites/acpica/files/acpica-unix-20150717.tar.gz
-tar xaf acpica-unix-20150717.tar.gz
-rm acpica-unix-20150717.tar.gz
-mv acpica-unix-20150717 acpica
+wget https://acpica.org/sites/acpica/files/acpica-unix-20150930.tar.gz
+tar xaf acpica-unix-20150930.tar.gz
+rm acpica-unix-20150930.tar.gz
+mv acpica-unix-20150930 acpica
 patch -d acpica -p1 < ../../patches/acpica.patch
 wget http://download.savannah.gnu.org/releases/lwip/lwip-1.4.1.zip
 unzip -d lwip lwip-1.4.1.zip

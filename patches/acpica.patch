@@ -1,6 +1,6 @@
-diff -ruN acpica-unix-20150717/Makefile acpica/Makefile
---- acpica-unix-20150717/Makefile	2015-07-17 12:04:13.000000000 -0400
-+++ acpica/Makefile	2015-08-02 22:25:07.313209232 -0400
+diff -ruN acpica-unix-20150930-orig/Makefile acpica/Makefile
+--- acpica-unix-20150930-orig/Makefile	2015-09-30 15:14:33.000000000 -0400
++++ acpica/Makefile	2015-09-30 21:59:31.921160130 -0400
 @@ -11,12 +11,64 @@
  # compilations of the same source file with different compile options.
  #
@@ -75,10 +75,10 @@ diff -ruN acpica-unix-20150717/Makefile acpica/Makefile
 +	rm -rf libacpica.a
 +
 +dep depend Makefile.dep:
-diff -ruN acpica-unix-20150717/source/include/platform/acenv.h acpica/source/include/platform/acenv.h
---- acpica-unix-20150717/source/include/platform/acenv.h	2015-07-17 12:04:23.000000000 -0400
-+++ acpica/source/include/platform/acenv.h	2015-08-02 22:25:07.313209232 -0400
-@@ -289,6 +289,9 @@
+diff -ruN acpica-unix-20150930-orig/source/include/platform/acenv.h acpica/source/include/platform/acenv.h
+--- acpica-unix-20150930-orig/source/include/platform/acenv.h	2015-09-30 15:14:42.000000000 -0400
++++ acpica/source/include/platform/acenv.h	2015-09-30 21:59:31.921160130 -0400
+@@ -290,6 +290,9 @@
  #elif defined(__HAIKU__)
  #include "achaiku.h"
  
@@ -88,10 +88,10 @@ diff -ruN acpica-unix-20150717/source/include/platform/acenv.h acpica/source/inc
  #else
  
  /* Unknown environment */
-diff -ruN acpica-unix-20150717/source/include/platform/ackos.h acpica/source/include/platform/ackos.h
---- acpica-unix-20150717/source/include/platform/ackos.h	1969-12-31 19:00:00.000000000 -0500
-+++ acpica/source/include/platform/ackos.h	2015-08-02 22:25:07.313209232 -0400
-@@ -0,0 +1,34 @@
+diff -ruN acpica-unix-20150930-orig/source/include/platform/ackos.h acpica/source/include/platform/ackos.h
+--- acpica-unix-20150930-orig/source/include/platform/ackos.h	1969-12-31 19:00:00.000000000 -0500
++++ acpica/source/include/platform/ackos.h	2015-09-30 21:59:54.244420172 -0400
+@@ -0,0 +1,35 @@
 +#ifndef __ACKOS_H__
 +#define __ACKOS_H__
 +
@@ -101,6 +101,7 @@ diff -ruN acpica-unix-20150717/source/include/platform/ackos.h acpica/source/inc
 +//#define ACPI_USE_SYSTEM_CLIBRARY
 +//#define ACPI_FLUSH_CPU_CACHE()
 +
++#define ACPI_DEBUG_OUTPUT
 +#define ACPI_USE_DO_WHILE_0
 +#define ACPI_USE_LOCAL_CACHE
 +#define ACPI_USE_SYSTEM_CLIBRARY

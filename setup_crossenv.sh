@@ -20,10 +20,10 @@ cd -
 BINUTILS=binutils-2.25.1     # GNU mirror
 BOCHS=bochs-2.6.8            # http://bochs.sourceforge.net/
 GCC=gcc-$GCCVER              # GNU mirror
-GDB=gdb-7.9.1                # GNU mirror
+GDB=gdb-7.10                 # GNU mirror
 GRUB=grub-2.02~beta2         # http://alpha.gnu.org/gnu/grub/
 NEWLIB=newlib-2.2.0.20150623 # http://sourceware.org/newlib/
-QEMU=qemu-2.3.0              # http://www.qemu.org/
+QEMU=qemu-2.4.0.1            # http://www.qemu.org/
 
 mkdir -p $TMPDIR
 uname -s|fgrep -qi CYGWIN && ROOTEXEC=bash || ROOTEXEC=su

@@ -1,7 +1,7 @@
-diff -ruN gdb-7.9-orig/gdb/configure.tgt gdb-7.9/gdb/configure.tgt
---- gdb-7.9-orig/gdb/configure.tgt	2015-02-19 06:58:27.000000000 -0500
-+++ gdb-7.9/gdb/configure.tgt	2015-03-17 23:23:02.188780750 -0400
-@@ -659,6 +659,13 @@
+diff -ruN gdb-7.10/gdb/configure.tgt gdb-7.10-patched/gdb/configure.tgt
+--- gdb-7.10/gdb/configure.tgt	2015-08-28 17:22:07.000000000 -0400
++++ gdb-7.10-patched/gdb/configure.tgt	2015-09-30 20:27:21.653290842 -0400
+@@ -658,6 +658,13 @@
  			solib-svr4.o symfile-mem.o linux-tdep.o linux-record.o"
  	build_gdbserver=yes
  	;;
@@ -15,7 +15,7 @@ diff -ruN gdb-7.9-orig/gdb/configure.tgt gdb-7.9/gdb/configure.tgt
  x86_64-*-freebsd* | x86_64-*-kfreebsd*-gnu)
  	# Target: FreeBSD/amd64
  	gdb_target_obs="amd64-tdep.o amd64fbsd-tdep.o i386-tdep.o \
-@@ -701,7 +708,7 @@
+@@ -700,7 +707,7 @@
  case "${targ}" in
  *-*-freebsd* | *-*-kfreebsd*-gnu)
  		gdb_osabi=GDB_OSABI_FREEBSD_ELF ;;
@@ -24,10 +24,10 @@ diff -ruN gdb-7.9-orig/gdb/configure.tgt gdb-7.9/gdb/configure.tgt
  		gdb_osabi=GDB_OSABI_LINUX ;;
  *-*-nto*)	gdb_osabi=GDB_OSABI_QNXNTO ;;
  m68*-*-openbsd* | m88*-*-openbsd* | vax-*-openbsd*) ;;
-diff -ruN gdb-7.9-orig/gdb/remote.c gdb-7.9/gdb/remote.c
---- gdb-7.9-orig/gdb/remote.c	2015-02-20 12:11:44.000000000 -0500
-+++ gdb-7.9/gdb/remote.c	2015-03-17 23:23:02.192114075 -0400
-@@ -6154,8 +6154,16 @@
+diff -ruN gdb-7.10/gdb/remote.c gdb-7.10-patched/gdb/remote.c
+--- gdb-7.10/gdb/remote.c	2015-08-28 17:22:07.000000000 -0400
++++ gdb-7.10-patched/gdb/remote.c	2015-09-30 20:27:21.656624172 -0400
+@@ -6562,8 +6562,16 @@
    buf_len = strlen (rs->buf);
  
    /* Further sanity checks, with knowledge of the architecture.  */
