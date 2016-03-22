@@ -50,6 +50,7 @@ void kosMain() {
     }
     KOUT::outl();
   }
+	Machine::getProcessor(LocalProcessor::getIndex()).timer_perf();
 #if TESTING_TIMER_TEST
   StdErr.print<false>(" timer test, 3 secs...");
   for (int i = 0; i < 3; i++) {
@@ -64,12 +65,14 @@ void kosMain() {
   t->start((ptr_t)keybLoop);
 #endif
   Thread::create()->start((ptr_t)UserMain);
+
 #if TESTING_PING_LOOP
-  for (;;) {
+	for (;;) {
     Timeout::sleep(Clock::now() + 1000);
-    KOUT::outl("...ping...");
-  }
+		KOUT::outl("KOS:" );
+	}
 #endif
+
 }
 
 extern "C" void kmain(mword magic, mword addr, mword idx)         __section(".boot.text");
