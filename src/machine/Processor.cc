@@ -62,6 +62,7 @@ void Processor::init(paddr pml4, bool output, InterruptDescriptor* idtTable, siz
   loadTR(tssSel * sizeof(SegmentDescriptor));
   clearLDT();                  // LDT is not used
   loadIDT(idtTable, idtSize);  // install interrupt table
+	KOUT::outl("PMC ", MSR::read(MSR::PMC0));
 }
 
 void Processor::startup(BaseScheduler& sched, funcvoid0_t func) {
@@ -117,6 +118,6 @@ void LocalProcessor::initInterrupts(bool irqs) {
   MappedAPIC()->setFlatMode();         // set flat logical destination mode
   MappedAPIC()->setLogicalDest(irqs ? 0x01 : 0x00); // join irq group
   MappedAPIC()->setTaskPriority(0x00); // accept all interrupts
-  MappedAPIC()->enable(0xff);          // enable APIC, set spurious IRQ to 0xff
-  unlock(1);
+	MappedAPIC()->enable(0xff);         // enable APIC, set spurious IRQ to 0xff
+	unlock(1);
 }

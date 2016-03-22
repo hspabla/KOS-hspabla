@@ -1001,6 +1001,12 @@ extern "C" void irq_handler_0xf0(mword* isrFrame) { // PIT interrupt
 #endif
 }
 
+extern "C" void irq_handler_0xf1(mword* isrFrame) { // apic timer  nterrupt
+  IsrEntry<true> ie(isrFrame);
+  KOUT::outl("rip() ", ie.rip());
+	KOUT::outl("-----------------");
+}
+
 extern "C" void irq_handler_0xf7(mword* isrFrame) { // parallel interrupt, spurious no problem
   IsrEntry<true> ie(isrFrame);
   KERR::out1(" parallel");
