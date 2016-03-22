@@ -199,7 +199,18 @@ public:
   void maskTimer() {
     LVT_Timer |= MaskTimer();
   }
-  void sendInitIPI(uint8_t dest, bool broadcast = false) {
+		
+	void timer_perf() {
+    LVT_Timer = 0x200F1;
+    InitialCount = 0xFFFFFF;
+    DivideConfiguration = 0xA;
+  }
+	uint32_t LVT_Timer_config() { return LVT_Timer; }
+  uint32_t CurrentCount_config(){ return CurrentCount; }
+  uint32_t InitialCount_config() { return InitialCount; }
+  uint32_t DivideConfiguration_config() { return DivideConfiguration; }
+	
+	void sendInitIPI(uint8_t dest, bool broadcast = false) {
     ipi(DestField.put(dest), DeliveryMode.put(Init), broadcast);
   }
   void sendInitDeassertIPI(uint8_t dest, bool broadcast = false) {
