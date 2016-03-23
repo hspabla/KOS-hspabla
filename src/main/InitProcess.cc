@@ -19,10 +19,12 @@
 int InitProcess() {
   Process* p0 = knew<Process>();
   p0->exec("systest");
+/*
 #if TESTING_MEMORY_HOG
   Process* p1 = knew<Process>();
   p1->exec("memoryhog");
 #endif
+*/
 #if !TESTING_KEYCODE_LOOP
   Process* p2 = knew<Process>();
   p2->exec("kbloop");

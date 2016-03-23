@@ -1003,7 +1003,9 @@ extern "C" void irq_handler_0xf0(mword* isrFrame) { // PIT interrupt
 
 extern "C" void irq_handler_0xf1(mword* isrFrame) { // apic timer  nterrupt
   IsrEntry<true> ie(isrFrame);
-  KOUT::outl("rip() ", ie.rip());
+	uint64_t i ;
+	asm("\t mov %%r12,%0" : "=r"(i));
+  KOUT::outl("rip ", i);
 	KOUT::outl("-----------------");
 }
 
