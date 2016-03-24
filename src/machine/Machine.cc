@@ -774,7 +774,7 @@ void Machine::setupIDTable() {
   setupIDT(0xee, (vaddr)&isr_wrapper_0xee);
   setupIDT(0xef, (vaddr)&isr_wrapper_0xef);
   setupIDT(0xf0, (vaddr)&isr_wrapper_0xf0);
-  setupIDT(0xf1, (vaddr)&isr_wrapper_0xf1);
+  setupIDT(0xf1, (vaddr)&isr_wrapper_custom_0xf1);
   setupIDT(0xf2, (vaddr)&isr_wrapper_0xf2);
   setupIDT(0xf3, (vaddr)&isr_wrapper_0xf3);
   setupIDT(0xf4, (vaddr)&isr_wrapper_0xf4);
@@ -1003,9 +1003,9 @@ extern "C" void irq_handler_0xf0(mword* isrFrame) { // PIT interrupt
 
 extern "C" void irq_handler_0xf1(mword* isrFrame) { // apic timer  nterrupt
   IsrEntry<true> ie(isrFrame);
-	uint64_t i ;
+	uint64_t* i;
 	asm("\t mov %%r12,%0" : "=r"(i));
-  KOUT::outl("rip ", i);
+  KOUT::outl("rip ", *i);
 	KOUT::outl("-----------------");
 }
 

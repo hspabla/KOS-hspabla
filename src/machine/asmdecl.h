@@ -271,7 +271,7 @@ extern "C" void isr_wrapper_0xed(void);
 extern "C" void isr_wrapper_0xee(void);
 extern "C" void isr_wrapper_0xef(void);
 extern "C" void isr_wrapper_0xf0(void);
-extern "C" void isr_wrapper_0xf1(void);
+extern "C" void isr_wrapper_custom_0xf1(void);
 extern "C" void isr_wrapper_0xf2(void);
 extern "C" void isr_wrapper_0xf3(void);
 extern "C" void isr_wrapper_0xf4(void);
