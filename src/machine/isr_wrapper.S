@@ -26,15 +26,6 @@ isr_wrapper_\isr_num:
 	leaq (ISRFRAME+\offset)(%rsp), %rdi /* address of isr frame -> 1st arg */
 .endm
 
-.macro ISR_ENTRY_custom isr_num offset=0     /* offset to account for error code */
-.align 8
-.globl   isr_wrapper_custom_\isr_num
-isr_wrapper_custom_\isr_num:
-  ISR_PUSH
-  leaq (ISRFRAME+\offset)(%rsp), %r12
-  leaq (ISRFRAME+\offset)(%rsp), %rdi /* address of isr frame -> 1st arg */
-.endm
-
 
 .macro ISR_EXIT isr_num offset=0      /* offset to account for error code */
 	ISR_POP
@@ -75,12 +66,6 @@ isr_wrapper_custom_\isr_num:
 	ISR_ENTRY \isr_num
 	call irq_handler_\isr_num
 	ISR_EXIT \isr_num
-.endm
-
-.macro IRQ_DIRECT_custom isr_num
-  ISR_ENTRY_custom \isr_num
-  call irq_handler_\isr_num
-  ISR_EXIT \isr_num
 .endm
 
 EXCEPTION 0x00
@@ -324,7 +309,7 @@ IRQ_DIRECT 0xed
 IRQ_DIRECT 0xee
 IRQ_DIRECT 0xef
 IRQ_DIRECT 0xf0
-IRQ_DIRECT_custom 0xf1
+IRQ_DIRECT 0xf1
 EXCEPTION_UNDEFINED 0xf2
 EXCEPTION_UNDEFINED 0xf3
 EXCEPTION_UNDEFINED 0xf4

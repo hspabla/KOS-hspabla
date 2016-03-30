@@ -33,5 +33,7 @@ int InitProcess() {
   p3->exec("threadtest");
   Process* p4 = knew<Process>();
   p4->exec("manythread");
+	Process* p5 = knew<Process>();
+  p5->exec("hello");
   return 0;
 }
