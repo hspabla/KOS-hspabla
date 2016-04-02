@@ -1,6 +1,6 @@
 SRCDIR:=$(CURDIR)
 include $(SRCDIR)/Makefile.config
-SOURCEDIRS=generic runtime kernel machine devices world main gdb
+SOURCEDIRS=generic runtime kernel machine devices world main gdb tools
 SOURCES=$(wildcard $(addsuffix /*.cc,$(SOURCEDIRS)))
 BSOURCES=$(notdir $(SOURCES))
 OBJECTS=$(BSOURCES:%.cc=%.o)

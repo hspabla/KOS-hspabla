@@ -50,7 +50,9 @@ void kosMain() {
     }
     KOUT::outl();
   }
-	Machine::getProcessor(LocalProcessor::getIndex()).timer_perf();
+
+//	start perf
+//	Machine::getProcessor(LocalProcessor::getIndex()).timer_perf();
 #if TESTING_TIMER_TEST
   StdErr.print<false>(" timer test, 3 secs...");
   for (int i = 0; i < 3; i++) {

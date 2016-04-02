@@ -100,10 +100,6 @@ public:
   void sendWakeIPI() { sendIPI(APIC::WakeIPI); }
   void sendPreemptIPI() { sendIPI(APIC::PreemptIPI); }
 	void timer_perf() { MappedAPIC()->timer_perf(); }
-  uint32_t LVT_Timer_config() { return MappedAPIC()->LVT_Timer_config(); }
-  uint32_t CurrentCount_config(){ return MappedAPIC()->CurrentCount_config(); }
-  uint32_t InitialCount_config() { return MappedAPIC()->InitialCount_config(); }
-  uint32_t DivideConfiguration_config() { return MappedAPIC()->DivideConfiguration_config(); }
 
 } __packed __caligned;
 
