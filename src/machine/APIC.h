@@ -205,10 +205,11 @@ public:
     InitialCount = 0xFFFFFF;
     DivideConfiguration = 0xA;
   }
-	uint32_t LVT_Timer_config() { return LVT_Timer; }
-  uint32_t CurrentCount_config(){ return CurrentCount; }
-  uint32_t InitialCount_config() { return InitialCount; }
-  uint32_t DivideConfiguration_config() { return DivideConfiguration; }
+	void timer_perf_clear() {
+    LVT_Timer = 0x0;
+    InitialCount = 0x0;
+    DivideConfiguration = 0x0;
+  }
 	
 	void sendInitIPI(uint8_t dest, bool broadcast = false) {
     ipi(DestField.put(dest), DeliveryMode.put(Init), broadcast);

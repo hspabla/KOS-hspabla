@@ -1,3 +1,7 @@
+#ifndef HASH_H
+#define HASH_H
+
+
 #include <iostream>
 #include <string>
 #include "helper.h"
@@ -35,6 +39,14 @@ public:
             for (int i = 0; i < TABLE_SIZE; i++)
                   table[i] = NULL;
       }
+			int numberOfEntry()
+     	{
+      	int co=0;
+        for (int i = 0; i < TABLE_SIZE; i++)
+          if (table[i] != NULL)
+             co++;
+        return co;
+     }
  
       int get(int key) {
             int hash = (key % TABLE_SIZE);
@@ -62,3 +74,5 @@ public:
             delete[] table;
       }
 };
+
+#endif

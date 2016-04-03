@@ -31,11 +31,14 @@
 #include "devices/Serial.h"
 #include "gdb/Gdb.h"
 #include "syscalls.h"
-
+#include "tools/perf.h"
 #include "machine/ACPI.h"
 
 #include <list>
 #include <map>
+#include <vector>
+
+
 
 // simple direct declarations in lieu of more header files
 extern void initCdiDrivers();
@@ -91,6 +94,7 @@ mword Machine::processorCount = 0;
 SystemProcessor* Machine::processorTable = nullptr;
 static mword bspIndex = ~mword(0);
 static mword bspApicID = ~mword(0);
+
 
 // simple IPI test during bootstrap
 void (*tipiHandler)(void) = nullptr;
@@ -442,6 +446,9 @@ void Machine::bootMain() {
   Thread::create()->start((ptr_t)kosMain);
   CurrThread()->terminate(); // explicitly terminate boot thread
 }
+
+// Perf object
+Perf cpu_sample;
 
 /*********************** IRQ / Exception Handling Code ***********************/
 
@@ -1001,14 +1008,19 @@ extern "C" void irq_handler_0xf0(mword* isrFrame) { // PIT interrupt
 #endif
 }
 
-extern "C" void irq_handler_0xf1(mword* isrFrame) { // apic timer  nterrupt
+extern "C" void irq_handler_0xf1(mword* isrFrame) { // apic timer interrupt
   IsrEntry<true> ie(isrFrame);
-	mword i = *(ie.rsp());
-	if (ie.fromUser()) { 
-		KOUT::outl("from user ", i);
-	} else {	
-		KOUT::outl("from kernel ", i);
-	}
+  mword i = *(ie.rsp());
+  uint64_t cid_p = LocalProcessor::getIndex();
+	sampleD currentSample;
+  currentSample.address = i;
+  currentSample.cpuID = cid_p;
+  if (ie.fromUser()) {
+  	currentSample.access_type = 1;
+  } else {
+  	currentSample.access_type = 0;
+  }
+	cpu_sample.put_sample(currentSample);
 }
 
 extern "C" void irq_handler_0xf7(mword* isrFrame) { // parallel interrupt, spurious no problem

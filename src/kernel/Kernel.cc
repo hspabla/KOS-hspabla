@@ -20,7 +20,7 @@
 #include "kernel/Output.h"
 #include "world/Access.h"
 #include "machine/Machine.h"
-
+#include "tools/perf.h"
 #include "main/UserMain.h"
 
 KernelAddressSpace kernelAS;  // AddressSpace.h
@@ -51,8 +51,6 @@ void kosMain() {
     KOUT::outl();
   }
 
-//	start perf
-//	Machine::getProcessor(LocalProcessor::getIndex()).timer_perf();
 #if TESTING_TIMER_TEST
   StdErr.print<false>(" timer test, 3 secs...");
   for (int i = 0; i < 3; i++) {
@@ -68,10 +66,14 @@ void kosMain() {
 #endif
   Thread::create()->start((ptr_t)UserMain);
 
+	//  start perf
+  extern Perf cpu_sample;
+	cpu_sample.start();
 #if TESTING_PING_LOOP
 	for (;;) {
     Timeout::sleep(Clock::now() + 1000);
 		KOUT::outl("KOS:" );
+		cpu_sample.print_core_buf();
 	}
 #endif
 

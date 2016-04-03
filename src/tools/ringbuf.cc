@@ -1,7 +1,7 @@
 
 #include "ringbuf.h" 
 
-Queue::Queue(int size) {
+Queue::Queue() {
     head = tail = -1;
     Queue::size = QUEUE_SIZE;
     count = 0;
@@ -11,9 +11,15 @@ Queue::~Queue(){
     //delete [] data; 	
 }
 
-int Queue::size() {
+int Queue::qsize() {
 		return count;
 	}
+
+uint64_t Queue::view(int index) {
+	return ringArray[index].address;
+}
+
+
  
 void Queue::push(sampleD item) {
     if (head == 0 && tail == size || head == tail + 1) {
@@ -71,6 +77,7 @@ void Queue::print() {
         //cout << endl;
     }
 }
+
 
 
 /*

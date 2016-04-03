@@ -53,9 +53,7 @@ public:
 
   static constexpr inline mword kernCS();
 };
-
 void Breakpoint2(vaddr ia = 0) __ninline;
-
 static inline void Breakpoint(vaddr ia = 0) {
   asm volatile( "xchg %%bx, %%bx" ::: "memory" );
   Breakpoint2(ia);

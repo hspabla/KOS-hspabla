@@ -13,15 +13,16 @@ class Queue{
         int head, tail, size, count = 0;
 				//sampleD sampleData;
         //int *ringArray;
-	sampleD ringArray[QUEUE_SIZE];
+				sampleD ringArray[QUEUE_SIZE];
 	
     public:
-        Queue(int);
+        Queue();
 				~Queue();
         void push(sampleD);
         void print();
         void pop();
-				int size();
+				int qsize();
+				uint64_t view(int);
 };
 
 

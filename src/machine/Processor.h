@@ -99,9 +99,7 @@ public:
   void sendIPI(uint8_t vec) { MappedAPIC()->sendIPI(apicID, vec); }
   void sendWakeIPI() { sendIPI(APIC::WakeIPI); }
   void sendPreemptIPI() { sendIPI(APIC::PreemptIPI); }
-	void timer_perf() { MappedAPIC()->timer_perf(); }
-
-} __packed __caligned;
+}	 __packed __caligned;
 
 class LocalProcessor {
   static void enableInterrupts() { asm volatile("sti" ::: "memory"); }
@@ -125,8 +123,11 @@ class LocalProcessor {
 
 public:
   static void initInterrupts(bool irqs);
-
-  static mword getIndex() {
+  
+	static void setApicTimer() { MappedAPIC()->timer_perf(); }
+	static void clearApicTimer() { MappedAPIC()->timer_perf_clear(); }
+	
+	static mword getIndex() {
     return get<mword, offsetof(Context, index)>();
   }
   static mword getApicID() {
@@ -193,6 +194,7 @@ public:
     static_assert(o == TSSRSP, "TSSRSP");
     set<Thread*, o>(currThread);            // Thread* = top of stack
   }
+
 };
 
 #endif /* Processor_h_ */
