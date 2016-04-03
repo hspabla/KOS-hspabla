@@ -202,7 +202,7 @@ public:
 		
 	void timer_perf() {
     LVT_Timer = 0x200F1;
-    InitialCount = 0xFFFFFF;
+    InitialCount = 0xFFFF;
     DivideConfiguration = 0xA;
   }
 	void timer_perf_clear() {

@@ -15,68 +15,34 @@ int Queue::qsize() {
 		return count;
 	}
 
-uint64_t Queue::view(int index) {
-	return ringArray[index].address;
-}
 
-
- 
 void Queue::push(sampleD item) {
-    if (head == 0 && tail == size || head == tail + 1) {
-        cout << "Queue is full\n";
-    }
-    else if (head == -1 && tail == -1) {
-        head = 0;
-        tail = 0;
-        ringArray[head] = item;
-        count++;
-    }
-    else if (tail == size) {
-        tail = 0;
-        ringArray[tail] = item;
-        count++;
-    }
-    else {
-        tail++;
-        ringArray[tail] = item;
-        count++;
-    }
+   if (head == -1 && tail == -1) {
+       head = 0;
+       tail = 0;
+       ringArray[head] = item;
+       count++;
+   }
+   else if (tail == (size-1)){
+       tail = (tail+1) % size;
+       count=1;
+       ringArray[tail] = item;
+   }
+   else {
+       tail = (tail+1) % size;
+       ringArray[tail] = item;
+       count++;
+   }
 }
- 
-void Queue::pop() {
-    if (head == -1 && tail == -1) {
-        cout << "Queue is empty\n";
-    }
-    else {
-        if (head == tail) {
-        //ringArray[head] = NULL;;
-        head = -1;
-        tail = -1;
-        count--;
-    }
-    else if (head == size) {
-        //ringArray[head] = NULL;
-        head = 0;
-        count--;
-    }
-    else {
-        //ringArray[head] = NULL;
-        head++;
-        count--;
-    }
-    }
+
+uint64_t Queue::view(int i) {
+    return ringArray[i].address;
 }
- 
-void Queue::print() {
-    if (count == 0) {
-        cout << "Queue is empty\n";
-    } else {
-        for(int i = 0; i < size + 1; i++)
-	    printf("%lu\n",ringArray[i].address);
-            //cout << ringArray[i]->address << " ";
-        //cout << endl;
-    }
-}
+
+void Queue::data_read() {
+    Queue::tail = 0;
+    Queue::count = 0;
+} 
 
 
 

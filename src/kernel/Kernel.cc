@@ -69,11 +69,11 @@ void kosMain() {
 	//  start perf
   extern Perf cpu_sample;
 	cpu_sample.start();
+	cpu_sample.print();
 #if TESTING_PING_LOOP
 	for (;;) {
     Timeout::sleep(Clock::now() + 1000);
-		KOUT::outl("KOS:" );
-		cpu_sample.print_core_buf();
+		//KOUT::outl("KOS:" );
 	}
 #endif
 

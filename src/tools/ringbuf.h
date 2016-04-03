@@ -20,9 +20,9 @@ class Queue{
 				~Queue();
         void push(sampleD);
         void print();
-        void pop();
 				int qsize();
 				uint64_t view(int);
+				void data_read();
 };
 
 

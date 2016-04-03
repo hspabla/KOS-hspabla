@@ -62,7 +62,6 @@ void Processor::init(paddr pml4, bool output, InterruptDescriptor* idtTable, siz
   loadTR(tssSel * sizeof(SegmentDescriptor));
   clearLDT();                  // LDT is not used
   loadIDT(idtTable, idtSize);  // install interrupt table
-	KOUT::outl("PMC ", MSR::read(MSR::PMC0));
 }
 
 void Processor::startup(BaseScheduler& sched, funcvoid0_t func) {

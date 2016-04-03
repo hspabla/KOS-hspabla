@@ -9,7 +9,7 @@
 #define CPU2 2
 #define CPU3 3
 
-#define QUEUE_SIZE 50
+#define QUEUE_SIZE 128
 
 typedef struct SampleData{
 	uint64_t address;
