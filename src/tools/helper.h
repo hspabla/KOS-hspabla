@@ -13,7 +13,7 @@
 
 typedef struct SampleData{
 	uint64_t address;
-	uint64_t cpuID;
+	uint8_t cpuID;
  	int access_type; 
 }sampleD;
 
